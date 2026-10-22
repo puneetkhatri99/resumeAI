@@ -1,0 +1,212 @@
+/* resume_structuring: the candidate card and the extracted CV sections, each in its own colour. */
+
+.candidate-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.candidate-avatar {
+  flex: none;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue), var(--violet));
+  box-shadow: 0 0 0 4px var(--violet-tint);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.candidate-main {
+  flex: 999 1 320px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.candidate-name {
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.contact-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.contact-pills .pill {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.ai-note {
+  flex: 1 1 240px;
+  padding: 12px 14px;
+  border: 1px solid #f6dc9c;
+  border-radius: 12px;
+  background: #fff6e0;
+  color: #6b4a0a;
+  font-size: 13px;
+}
+
+.cv-details {
+  padding: 8px 24px;
+}
+
+.cv-section {
+  padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cv-section + .cv-section {
+  border-top: 1px solid var(--line-soft);
+}
+
+.cv-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cv-section-header .icon-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.cv-section-header .icon-tile svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cv-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--section-text);
+}
+
+.cv-section-indigo {
+  --section-color: var(--indigo);
+  --section-tint: var(--blue-tint);
+  --section-text: var(--indigo);
+}
+
+.cv-section-pink {
+  --section-color: var(--pink);
+  --section-tint: var(--pink-tint);
+  --section-text: var(--pink-dark);
+}
+
+.cv-section-blue {
+  --section-color: var(--blue);
+  --section-tint: var(--blue-tint);
+  --section-text: var(--blue-dark);
+}
+
+.cv-section-teal {
+  --section-color: var(--teal);
+  --section-tint: var(--teal-tint);
+  --section-text: var(--teal-dark);
+}
+
+.cv-section-violet {
+  --section-color: var(--violet);
+  --section-tint: var(--violet-tint);
+  --section-text: var(--violet-dark);
+}
+
+.cv-section-orange {
+  --section-color: var(--orange);
+  --section-tint: var(--orange-tint);
+  --section-text: var(--orange-dark);
+}
+
+/* One entry per job, school, project, etc., marked with a dot in the section's colour. */
+.cv-entries {
+  margin: 0;
+  padding: 0 0 0 10px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cv-entries li {
+  position: relative;
+  padding-left: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cv-entries li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--section-color);
+  box-shadow: 0 0 0 4px var(--section-tint);
+}
+
+.cv-entries li > div:first-child {
+  font-weight: 600;
+}
+
+.cv-entries li > div + div {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.skill-chips {
+  margin: 0;
+  padding: 0 0 0 10px;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-chips li {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--blue-tint);
+  color: var(--blue-dark);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.skill-chips li:nth-child(5n + 2) {
+  background: var(--teal-tint);
+  color: var(--teal-dark);
+}
+
+.skill-chips li:nth-child(5n + 3) {
+  background: var(--violet-tint);
+  color: var(--violet-dark);
+}
+
+.skill-chips li:nth-child(5n + 4) {
+  background: var(--pink-tint);
+  color: var(--pink-dark);
+}
+
+.skill-chips li:nth-child(5n + 5) {
+  background: var(--orange-tint);
+  color: var(--orange-dark);
+}

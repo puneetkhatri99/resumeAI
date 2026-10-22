@@ -1,0 +1,10 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Frontend has its own frontend/.gitignore (node_modules, dist, Playwright output)

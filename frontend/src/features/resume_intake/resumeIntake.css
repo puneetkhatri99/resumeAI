@@ -1,0 +1,697 @@
+/* resume_intake: the form layout, the CV drop zone, the submit progress card and the result screen layout. */
+
+.intake-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.intake-side {
+  flex: 1 1 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.intake-answers {
+  flex: 999 1 560px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.intake-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.field-row > .field {
+  flex: 1 1 240px;
+}
+
+.cv-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 20px;
+  border: 2px dashed #9db0f0;
+  border-radius: 14px;
+  background: #f3f6ff;
+  text-align: center;
+}
+
+.cv-dropzone-active {
+  border-color: var(--blue);
+  background: var(--blue-tint);
+}
+
+.cv-dropzone:has(.cv-dropzone-input:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* The real file input covers the zone, invisible: a click anywhere opens the picker and a drop lands on it. */
+.cv-dropzone-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.cv-upload-tile {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--blue);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 20px rgb(43 74 203 / 30%);
+}
+
+.cv-dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--indigo);
+}
+
+.cv-dropzone-or {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.cv-dropzone-chosen {
+  flex-direction: row;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #b9c7f5;
+  text-align: left;
+}
+
+.cv-file-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--blue);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
+.cv-file-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cv-file-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cv-file-detail {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.cv-rules {
+  margin: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--line-soft);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.cv-rules li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cv-rules li::before {
+  content: '';
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--teal-tint)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230B6E5F' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / 12px no-repeat;
+}
+
+.intake-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border: 1px solid #c9d3f5;
+  border-radius: var(--radius);
+  background: var(--blue-tint);
+}
+
+.intake-actions .alert {
+  flex-basis: 100%;
+}
+
+.intake-actions-text {
+  flex: 1 1 260px;
+  font-size: 14px;
+  color: #2a3570;
+}
+
+.button-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #a9b6e6;
+  border-top-color: #2a3570;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+/* Covers the page while sending, so the progress shows wherever the interviewer has scrolled to. */
+.progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(20 26 61 / 55%);
+  backdrop-filter: blur(3px);
+  animation: fade-in 0.2s ease;
+}
+
+.progress-card {
+  width: min(440px, 100%);
+  padding: 0;
+  overflow: hidden;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.4);
+  }
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--line);
+}
+
+.progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  transition: width 0.4s ease;
+}
+
+.progress-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.progress-head h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.progress-count {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--blue-tint);
+  color: var(--blue-dark);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* A step: its marker (dashed circle, spinner or tick) beside a label and a hint. */
+.progress-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 12px;
+}
+
+.progress-step::before {
+  content: '';
+  grid-row: span 2;
+  width: 28px;
+  height: 28px;
+  border: 2px dashed #c2c9da;
+  border-radius: 50%;
+}
+
+.progress-step-done::before {
+  border: 0;
+  background: var(--teal)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / 14px no-repeat;
+  animation: pop 0.3s ease;
+}
+
+.progress-step-active .progress-step-label {
+  color: var(--violet-dark);
+}
+
+.progress-step-active::before {
+  border: 3px solid #dcd0ff;
+  border-top-color: var(--violet);
+  animation: spin 0.9s linear infinite;
+}
+
+.progress-step-label {
+  font-weight: 600;
+}
+
+.progress-step-todo .progress-step-label {
+  color: var(--muted);
+}
+
+.progress-step-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.progress-status {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--violet-tint);
+  color: var(--violet-dark);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-spinner,
+  .progress-overlay,
+  .progress-step-done::before,
+  .progress-step-active::before {
+    animation: none;
+  }
+}
+
+/* The title band's buttons ("Open branded PDF", "New interview") stay together on the right. */
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Result screen: the candidate on top, the CV details beside the assessment, then the raw text. */
+.intake-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-areas:
+    'candidate candidate'
+    'details aside'
+    'raw raw';
+  gap: 24px;
+  align-items: start;
+}
+
+.intake-result .candidate-card {
+  grid-area: candidate;
+}
+
+.intake-result .cv-details {
+  grid-area: details;
+}
+
+.result-aside {
+  grid-area: aside;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.raw-text {
+  grid-area: raw;
+}
+
+@media (max-width: 900px) {
+  .intake-result {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'candidate' 'aside' 'details' 'raw';
+  }
+}
+
+.assessment {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rating-panel {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #dcd0ff;
+  border-radius: 12px;
+  background: var(--violet-tint);
+}
+
+.rating-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--violet-dark);
+}
+
+.rating-score {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--violet-dark);
+}
+
+/* The rating digit, drawn large; the text stays "4 / 5" for screen readers and copy-paste. */
+.rating-score::first-letter {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rating-bar {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.rating-bar span {
+  height: 10px;
+  border-radius: 5px;
+  background: #dcd0ff;
+}
+
+.rating-bar .rating-bar-on {
+  background: var(--violet);
+}
+
+.assessment-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 16px;
+  font-size: 14px;
+}
+
+.assessment-facts dt {
+  color: var(--muted);
+}
+
+.assessment-facts dd {
+  margin: 0;
+  justify-self: end;
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.assessment-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.note-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.note-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.note-block h4::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Keep the line breaks of the long answers. */
+.note-block p {
+  font-size: 14px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note-strengths {
+  background: #eefaf6;
+  color: var(--teal-dark);
+}
+
+.note-concerns {
+  background: #fff4ea;
+  color: var(--orange-dark);
+}
+
+.note-overall {
+  background: #f6f3ff;
+  color: var(--violet-dark);
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px;
+}
+
+.file-card-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-card-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-card-detail {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.raw-text {
+  padding: 8px 24px;
+}
+
+.raw-text summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.raw-text summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A chevron that points down when closed and up when open. */
+.raw-text summary::after {
+  content: '';
+  margin-left: auto;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--ink-2);
+  border-bottom: 2px solid var(--ink-2);
+  transform: rotate(45deg);
+  transition: transform 0.2s;
+}
+
+.raw-text details[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.raw-text-title {
+  display: flex;
+  flex-direction: column;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.raw-text-subtitle {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Keep the CV's line breaks. */
+.raw-text pre {
+  max-height: 360px;
+  margin: 8px 0 20px;
+  padding: 18px 20px;
+  overflow: auto;
+  border-radius: 12px;
+  background: #141a3d;
+  color: #dde3f7;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Past interviews: one linked row per intake. */
+.history-card {
+  padding: 8px;
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list li + li {
+  border-top: 1px solid var(--line-soft);
+}
+
+.history-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.history-row:hover {
+  background: #f5f7fe;
+}
+
+.history-avatar {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue), var(--violet));
+  color: #fff;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.history-who {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.history-email,
+.history-date {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.history-badges {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.history-message {
+  padding: 20px 16px;
+  color: var(--ink-2);
+}
+
+.history-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+a.button {
+  text-decoration: none;
+}

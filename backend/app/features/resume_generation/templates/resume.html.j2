@@ -1,0 +1,386 @@
+<!doctype html>
+{#
+  The branded MinistryHub resume page, printed to A4 by Chromium (service.render_pdf).
+  The header and footer images aren't here: they are page.pdf's header/footer templates.
+  AI values go only into text nodes and quoted href attributes, never into <style>, style=""
+  or an unquoted attribute, so autoescape covers every one. Icons are Lucide (ISC licence,
+  assets/LUCIDE-LICENSE.txt); the font is Inter (SIL OFL, assets/OFL.txt).
+#}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MinistryHub{% if data.name %} - {{ data.name }}{% endif %}</title>
+<style>
+{% for weight, uri in fonts.items() %}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: {{ weight }};
+  src: url({{ uri }}) format("woff2");
+}
+{% endfor %}
+:root {
+  --yellow: #ffc200;
+  --navy: #13293d;
+  --tile-navy: #0b3954;
+  --green: #089a79;
+  --muted: #4e5f6e;
+  --tint: #eef1f7;
+  --pill: #f8fbff;
+  --pill-border: #d7e2e8;
+  --link: #0000ff;
+}
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: "Inter", sans-serif;
+  font-size: 9pt;
+  line-height: 1.55;
+  color: var(--navy);
+  /* A long unbroken word wraps instead of overflowing, which would make Chrome shrink every page. */
+  overflow-wrap: anywhere;
+}
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+svg {
+  width: 12pt;
+  height: 12pt;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.name {
+  padding: 6pt 0 14pt;
+  font-size: 22.5pt;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--yellow);
+}
+.section {
+  padding: 15pt 0 17pt;
+  border-top: 1pt solid var(--yellow);
+}
+.section-title {
+  margin-bottom: 12pt;
+  font-size: 13.5pt;
+  font-weight: 600;
+  line-height: 1.3;
+  break-after: avoid;
+}
+.subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 8pt;
+  margin-bottom: 14pt;
+  font-size: 10.5pt;
+  font-weight: 600;
+  break-after: avoid;
+}
+.subsection-title::after {
+  content: "";
+  flex: 1;
+  border-top: 1pt solid var(--green);
+}
+.entry + .subsection-title {
+  margin-top: 22pt;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 17pt 20pt;
+}
+.fact,
+.entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12pt;
+}
+/* An entry may break across pages, but its title row stays with its first bullet. */
+.fact,
+.entry-head,
+.bullets li {
+  break-inside: avoid;
+}
+.entry + .entry {
+  margin-top: 20pt;
+}
+.fact > div,
+.fact .pills {
+  flex: 1;
+  min-width: 0;
+}
+.tile {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24pt;
+  height: 24pt;
+  border-radius: 5pt;
+  background: var(--tint);
+  color: var(--yellow);
+}
+.tile-navy {
+  background: var(--tile-navy);
+  color: #fff;
+}
+.label {
+  font-size: 7.5pt;
+  font-weight: 500;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.value {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.entry-body {
+  flex: 1;
+  min-width: 0;
+}
+.entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12pt;
+  break-after: avoid;
+}
+.entry-head > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.entry-title {
+  font-weight: 600;
+}
+.entry-subtitle {
+  font-size: 7.5pt;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.dates {
+  flex: none;
+  max-width: 50%;
+  display: flex;
+  align-items: center;
+  gap: 8pt;
+  font-size: 7.5pt;
+  font-weight: 500;
+}
+.chip {
+  padding: 1pt 6pt;
+  border-radius: 3pt;
+  background: var(--tint);
+  font-size: 8.25pt;
+  font-weight: 500;
+}
+.bullets {
+  margin-top: 7pt;
+  padding-left: 10pt;
+}
+.bullets li + li {
+  margin-top: 3pt;
+}
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6pt;
+  list-style: none;
+}
+.entry-body .pills {
+  margin-top: 7pt;
+}
+.pill {
+  padding: 2pt 7pt;
+  border: 0.75pt solid var(--pill-border);
+  border-radius: 999pt;
+  background: var(--pill);
+  font-size: 8.25pt;
+  font-weight: 500;
+}
+</style>
+</head>
+<body>
+{% if data.name %}<h1 class="name">{{ data.name }}</h1>{% endif %}
+
+<section class="section">
+  <div class="facts">
+    {% if data.email %}
+    <div class="fact">
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg></span>
+      <div><p class="label">Email</p><p class="value">{{ data.email }}</p></div>
+    </div>
+    {% endif %}
+    {% if data.phone %}
+    <div class="fact">
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></svg></span>
+      <div><p class="label">Phone number</p><p class="value">{{ data.phone }}</p></div>
+    </div>
+    {% endif %}
+    {% if data.location %}
+    <div class="fact">
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></span>
+      <div><p class="label">Current location</p><p class="value">{{ data.location }}</p></div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if total_years %}
+<section class="section">
+  <h2 class="section-title">Professional Summary</h2>
+  <div class="fact">
+    <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.3"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m7.69 16.479 1.29 4.88a.5.5 0 0 1-.698.591l-1.843-.849a1 1 0 0 0-.879.001l-1.846.85a.5.5 0 0 1-.692-.593l1.29-4.88"/><circle cx="6" cy="14" r="3"/></svg></span>
+    <div><p class="label">WORK EXPERIENCE IN YEARS</p><p class="value">{{ total_years }}</p></div>
+  </div>
+</section>
+{% endif %}
+
+{% set has_history = data.experience or data.education or data.projects %}
+{% if has_history or data.certificates %}
+<section class="section">
+  {% if has_history %}
+  <h2 class="section-title">Experience & Education</h2>
+  {% endif %}
+
+  {% if data.experience %}
+  <h3 class="subsection-title">Employment History</h3>
+  {% for job in data.experience %}
+  {% set duration = format_duration(job.start_date, job.end_date, today) %}
+  {% set lines = job.description | bullets %}
+  <div class="entry">
+    <span class="tile tile-navy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg></span>
+    <div class="entry-body">
+      <div class="entry-head">
+        <div>
+          {% if job.title %}<p class="entry-title">{{ job.title }}</p>{% endif %}
+          {% if job.company or job.location %}<p class="entry-subtitle">{{ [job.company, job.location] | select | join(" | ") }}</p>{% endif %}
+        </div>
+        <div class="dates">
+          {% if duration %}<span>{{ duration }}</span>{% endif %}
+          {% if job.start_date %}<span class="chip">{{ job.start_date }}</span>{% endif %}
+          {% if job.start_date and job.end_date %}<span>-</span>{% endif %}
+          {% if job.end_date %}<span class="chip">{{ job.end_date }}</span>{% endif %}
+        </div>
+      </div>
+      {% if lines %}
+      <ul class="bullets">
+        {% for line in lines %}<li>{{ line }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if data.education %}
+  <h3 class="subsection-title">Education</h3>
+  {% for school in data.education %}
+  {% set chip = school.end_date or school.start_date %}
+  <div class="entry">
+    <span class="tile tile-navy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg></span>
+    <div class="entry-body">
+      <div class="entry-head">
+        <div>
+          {% if school.institution %}<p class="entry-title">{{ school.institution }}</p>{% endif %}
+          {% if school.degree or school.field_of_study %}<p class="entry-subtitle">{{ [school.degree, school.field_of_study] | select | join(", ") }}</p>{% endif %}
+        </div>
+        {% if chip %}<div class="dates"><span class="chip">{{ chip }}</span></div>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if data.projects %}
+  <h3 class="subsection-title">Projects</h3>
+  {% for project in data.projects %}
+  {% set lines = project.description | bullets %}
+  <div class="entry">
+    <span class="tile tile-navy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 19a5 5 0 0 1-5-5v8"/><path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5"/><circle cx="13" cy="12" r="2"/><circle cx="20" cy="19" r="2"/></svg></span>
+    <div class="entry-body">
+      <div class="entry-head">
+        <div>
+          {% if project.name %}<p class="entry-title">{{ project.name }}</p>{% endif %}
+          {% if project.link %}
+          <p class="entry-subtitle">{% if project.link is http_url %}<a href="{{ project.link }}">{{ project.link }}</a>{% else %}{{ project.link }}{% endif %}</p>
+          {% endif %}
+        </div>
+      </div>
+      {% if lines %}
+      <ul class="bullets">
+        {% for line in lines %}<li>{{ line }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% if project.technologies %}
+      <ul class="pills">
+        {% for technology in project.technologies %}<li class="pill">{{ technology }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if data.certificates %}
+  <h3 class="subsection-title">Licenses & Certifications</h3>
+  {% for certificate in data.certificates %}
+  <div class="entry">
+    <span class="tile tile-navy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"/><circle cx="12" cy="8" r="6"/></svg></span>
+    <div class="entry-body">
+      <div class="entry-head">
+        <div>
+          {% if certificate.name %}<p class="entry-title">{{ certificate.name }}</p>{% endif %}
+          {% if certificate.issuer %}<p class="entry-subtitle">{{ certificate.issuer }}</p>{% endif %}
+        </div>
+        {% if certificate.date %}<div class="dates"><span class="chip">{{ certificate.date }}</span></div>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endif %}
+
+{% if data.skills %}
+<section class="section">
+  <h2 class="section-title">Skills</h2>
+  <div class="fact">
+    <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></span>
+    <ul class="pills">
+      {% for skill in data.skills %}<li class="pill">{{ skill }}</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}
+
+{% if data.links %}
+<section class="section">
+  <h2 class="section-title">Additional Information</h2>
+  <div class="facts">
+    {% for link in data.links %}
+    <div class="fact">
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+      <div>
+        <p class="label">LINK {{ loop.index }}</p>
+        <p class="value">{% if link is http_url %}<a href="{{ link }}">{{ link }}</a>{% else %}{{ link }}{% endif %}</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,15 @@
+# Runtime dependencies. Exact pins: upgrade on purpose, then re-run the tests.
+# The "no-fastapi-cloud-cli" extra skips FastAPI's cloud-deploy CLI and its Sentry dependency.
+fastapi[standard-no-fastapi-cloud-cli]==0.156.8
+pydantic-settings==2.16.1
+sqlalchemy==2.1.5
+psycopg[binary]==3.3.6
+alembic==1.20.0
+pypdfium2==5.14.0
+olefile==0.47
+openai==3.36.1
+# resume_generation: headless Chromium prints the branded PDF. After pip install, run once:
+# python -m playwright install --only-shell chromium
+playwright==1.64.0
+# Already installed through fastapi[standard...]; pinned because resume_generation imports it.
+jinja2==3.1.6
