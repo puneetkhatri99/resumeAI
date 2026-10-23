@@ -26,7 +26,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 python -m playwright install --only-shell chromium   # once: the headless browser that prints the branded PDF
-alembic upgrade head        # creates / updates the resume_intakes table
+alembic upgrade head        # creates / updates the tables (resume_intakes, ai_calls)
 fastapi dev app/main.py
 ```
 The Playwright step needs no admin rights and downloads only Chromium's headless shell into `%LOCALAPPDATA%\ms-playwright` (shared with the frontend's Playwright). Without it, "Open branded PDF" answers 500.

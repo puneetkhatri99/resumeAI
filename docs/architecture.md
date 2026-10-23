@@ -1,15 +1,17 @@
 # Architecture
 
 ## What the system does
-1. **resume_intake:** a recruiter drops in a CV (PDF, DOCX, DOC or TXT) and fills in an interview form. The CV text is extracted, structured by AI (below) and stored with the answers, and all of it is shown back to the recruiter. The upload streams its progress as Server-Sent Events.
-2. **resume_structuring:** uses AI (OpenAI) to turn the CV text into structured data: contact details, links, skills, experience, education, projects and certificates. It runs inside the intake upload; it has no endpoint of its own.
+1. **resume_intake:** a recruiter drops in a CV (PDF, DOCX, DOC or TXT) and fills in an interview form. The CV text is extracted (a scanned PDF by OCR), structured by AI (below) and stored with the answers, and all of it is shown back to the recruiter. The upload streams its progress as Server-Sent Events.
+2. **resume_structuring:** uses AI (OpenAI) to turn the CV text into structured data: contact details, links, skills, experience, education, projects and certificates. It also reads scanned PDFs by OCR (OpenAI vision). It runs inside the intake upload; it has no endpoint of its own.
 3. **resume_generation:** renders the branded MinistryHub PDF from the structured data, on demand (`GET /api/resume_generation/{intake_id}`, opened from the result screen's "Open branded PDF" link). The PDF isn't stored.
+4. **ai_usage:** records every answered OpenAI call (model, call type, tokens, cost priced at that model) and shows usage and cost on the AI usage panel (`#/usage`, `GET /api/ai_usage`); the past-interviews list shows each CV's AI cost.
 
 The client project is MinistryHub branded resumes, triggered from Loxo.
 
 The detailed design for each feature lives in `docs/features/<feature>.md`, written once the user gives the requirements.
 - `resume_intake` and `resume_structuring` (AI extraction) are designed and built.
 - `resume_generation` (the branded PDF) is designed and built.
+- `ai_usage` (the AI usage panel) is designed and built.
 
 ## Layout
 ```
@@ -23,7 +25,7 @@ backend/
 frontend/
   src/
     main.tsx, app/App.tsx   # entry + root component
-    shared/                 # shared: api/client.ts (fetch helpers, incl. the event-stream reader), test/setup.ts
+    shared/                 # shared: api/client.ts (fetch helpers, incl. the event-stream reader), format.ts (formatUsd), test/setup.ts
     features/<feature>/     # one vertical slice per feature (see below)
   e2e/<feature>.spec.ts     # Playwright end-to-end flows
 docs/                       # this file + docs/features/<feature>.md designs
@@ -120,4 +122,6 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-10-22 | PDF rendered on demand by `GET /api/resume_generation/{intake_id}`, not stored; `Cache-Control: no-store` | User choice; personal data |
 | 2026-10-22 | Rendering runs with JavaScript off and every network request aborted | The page holds AI output |
 | 2026-10-22 | One Chromium launch per PDF | Simplicity; revisit if volume grows |
-| Open | Production hosting/deployment, auth, OCR, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |
+| 2026-10-23 | OCR for scanned PDFs through OpenAI vision: the PDF goes as a Responses API `input_file` (`transcribe_pdf` in `resume_structuring`), with the same client, model and `store=False`. It runs when a PDF has no text layer, plus one retry when the AI finds no name or email in a text-layer PDF. (Supersedes "No OCR yet".) | User choice. No install (Application Control blocks `.exe` launchers here), good with two-column CVs, and no new vendor sees CV data. A scanned upload costs 2 OpenAI requests. |
+| 2026-10-23 | AI usage and cost in the `ai_usage` slice: one `ai_calls` row per answered OpenAI call, priced when recorded from a hand-edited `PRICES` table (5 models, OpenAI's prices on 2026-10-23), linked to its intake (`ON DELETE SET NULL`; unlinked for a failed upload). Calls are collected in a required `ai_calls` list parameter and stored in the intake's own commit. The panel's days and months follow the browser's time zone (`set_config('TimeZone', tz, true)` per request). | User choice (`docs/features/ai_usage.md`). The cost must stay right after the switch away from gpt-4.1-mini. A collector keeps the usage of answers that are then rejected (OpenAI bills them); a ContextVar doesn't survive the SSE generator's thread-pool steps. Calls with no answer (timeouts) can't be recorded: OpenAI's billing is the source of truth. |
+| Open | Production hosting/deployment, auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |

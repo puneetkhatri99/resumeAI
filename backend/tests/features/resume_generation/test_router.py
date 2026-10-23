@@ -78,7 +78,9 @@ def store_intake(db_session: Session, structured_data: Any) -> int:
 def test_pdf_is_returned_inline_and_not_cached(
     client: TestClient, db_session: Session, fake_renderer: FakeRenderer
 ) -> None:
-    intake = save_resume_intake(db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, ANSWERS)
+    intake = save_resume_intake(
+        db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, ANSWERS, []
+    )
 
     response = client.get(f"/api/resume_generation/{intake.id}")
 
@@ -96,7 +98,7 @@ def test_pdf_is_returned_inline_and_not_cached(
 def test_filename_is_percent_encoded(client: TestClient, db_session: Session) -> None:
     """The name is AI output: a slash, a non-ASCII letter or CR/LF must not reach the header."""
     data = FAKE_RESUME_DATA.model_copy(update={"name": "Ana/Ünal\r\nX"})
-    intake = save_resume_intake(db_session, "cv.txt", "txt", "Ana", data, ANSWERS)
+    intake = save_resume_intake(db_session, "cv.txt", "txt", "Ana", data, ANSWERS, [])
 
     response = client.get(f"/api/resume_generation/{intake.id}")
 
@@ -113,7 +115,7 @@ def test_filename_cannot_add_content_disposition_parameters(
 ) -> None:
     """A quote and a semicolon in the AI name must stay inside the percent-encoded filename."""
     data = FAKE_RESUME_DATA.model_copy(update={"name": 'Jane "The Coder"; filename=evil.exe'})
-    intake = save_resume_intake(db_session, "cv.txt", "txt", "Jane", data, ANSWERS)
+    intake = save_resume_intake(db_session, "cv.txt", "txt", "Jane", data, ANSWERS, [])
 
     response = client.get(f"/api/resume_generation/{intake.id}")
 
@@ -247,7 +249,9 @@ def test_render_failure_is_500(
     client: TestClient, db_session: Session, fake_renderer: FakeRenderer
 ) -> None:
     fake_renderer.error = PdfRenderError(PDF_FAILED_MESSAGE)
-    intake = save_resume_intake(db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, ANSWERS)
+    intake = save_resume_intake(
+        db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, ANSWERS, []
+    )
 
     response = client.get(f"/api/resume_generation/{intake.id}")
 

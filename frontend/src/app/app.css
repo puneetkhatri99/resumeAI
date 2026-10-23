@@ -141,9 +141,10 @@ a:hover {
   color: var(--indigo-soft-text);
 }
 
-/* Header links between the pages; the current one is filled. */
+/* Header links between the pages; the current one is filled. They wrap on a phone rather than widen the page. */
 .app-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 4px;
   border-radius: 999px;
@@ -542,6 +543,11 @@ a:hover {
 @media (max-width: 640px) {
   .hero-title {
     font-size: 30px;
+  }
+
+  /* The nav may wrap to two rows on a phone: rounded corners instead of round ends. */
+  .app-nav {
+    border-radius: 16px;
   }
 
   .card {

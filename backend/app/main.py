@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 
+from app.features.ai_usage.router import router as ai_usage_router
 from app.features.health.router import router as health_router
 from app.features.resume_generation.router import router as resume_generation_router
 from app.features.resume_intake.router import router as resume_intake_router
@@ -16,3 +17,4 @@ app.add_middleware(RequestBodyLimitMiddleware, max_body_size=MAX_REQUEST_BYTES)
 app.include_router(health_router, prefix="/api")
 app.include_router(resume_intake_router, prefix="/api")
 app.include_router(resume_generation_router, prefix="/api")
+app.include_router(ai_usage_router, prefix="/api")

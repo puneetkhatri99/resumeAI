@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
+import { AiUsagePanel } from '../features/ai_usage/AiUsagePanel.tsx'
 import { HealthStatus } from '../features/health/HealthStatus.tsx'
 import type { ResumeIntake } from '../features/resume_intake/api.ts'
 import { IntakeDetail } from '../features/resume_intake/IntakeDetail.tsx'
@@ -35,7 +36,8 @@ function useHashPath(): [string, (path: string) => void] {
 
 /**
  * Root component: the header band with the navigation, then the page for the address:
- * `#/` the interview form, `#/history` the past interviews, `#/history/{id}` one interview's result.
+ * `#/` the interview form, `#/history` the past interviews, `#/history/{id}` one interview's result,
+ * `#/usage` the AI usage panel. Any other address shows the form.
  * A successful submit opens its result at `#/history/{id}` (without fetching it again).
  */
 export function App() {
@@ -60,12 +62,15 @@ export function App() {
 
   const detailMatch = /^\/history\/(\d+)$/.exec(path)
   const isHistory = path.startsWith('/history')
+  const isUsage = path === '/usage'
   let page
   if (detailMatch) {
     const intakeId = Number(detailMatch[1])
     page = <IntakeDetail key={intakeId} intakeId={intakeId} initialResult={lastResult} onReset={startNewInterview} />
   } else if (path === '/history') {
     page = <IntakeHistory />
+  } else if (isUsage) {
+    page = <AiUsagePanel />
   } else {
     page = <InterviewForm onSubmitted={showResult} />
   }
@@ -89,11 +94,14 @@ export function App() {
             </div>
           </div>
           <nav className="app-nav" aria-label="Main">
-            <a href="#/" aria-current={isHistory ? undefined : 'page'}>
+            <a href="#/" aria-current={isHistory || isUsage ? undefined : 'page'}>
               New interview
             </a>
             <a href="#/history" aria-current={isHistory ? 'page' : undefined}>
               Past interviews
+            </a>
+            <a href="#/usage" aria-current={isUsage ? 'page' : undefined}>
+              AI usage
             </a>
           </nav>
           <HealthStatus />

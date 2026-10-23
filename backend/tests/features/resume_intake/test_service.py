@@ -1,7 +1,9 @@
-"""Tests for the resume_intake service: text extraction (no database needed) and
-get_resume_intake (needs Postgres; db_session rolls the row back).
+"""Tests for the resume_intake service: text extraction and OCR, structure_resume's OCR retry
+(no database needed; OpenAI is the autouse fake), and get_resume_intake (needs Postgres;
+db_session rolls the row back).
 """
 
+import base64
 import codecs
 import io
 import struct
@@ -14,14 +16,16 @@ import olefile
 import pytest
 from sqlalchemy.orm import Session
 
+from app.features.ai_usage.models import AiCall
 from app.features.resume_intake import service
 from app.features.resume_intake.schemas import InterviewAnswers
 from app.features.resume_intake.service import (
     EMPTY_MESSAGE,
+    LINKS_HEADING,
     OLD_WORD_MESSAGE,
     PASSWORD_MESSAGE,
+    PDFIUM_LOCK,
     PIECE_COMPRESSED,
-    SCANNED_PDF_MESSAGE,
     TOO_MANY_PAGES_MESSAGE,
     UNREADABLE_MESSAGE,
     ResumeExtractionError,
@@ -31,8 +35,10 @@ from app.features.resume_intake.service import (
     get_resume_intake,
     read_doc_streams,
     save_resume_intake,
+    structure_resume,
 )
-from tests.conftest import FAKE_RESUME_DATA
+from app.features.resume_structuring.service import MissingContactError
+from tests.conftest import FAKE_OCR_TEXT, FAKE_RESUME_DATA, FakeOpenAI
 
 REAL_DOC = Path(r"C:\Windows\System32\MSDRM\MsoIrmProtector.doc")
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -153,7 +159,7 @@ def build_doc_streams(
     ids=["utf8", "utf8-bom", "cp1252", "utf16-bom", "undefined-cp1252-byte", "control-chars"],
 )
 def test_txt_is_decoded_and_cleaned(data: bytes, expected: str) -> None:
-    assert extract_text(data) == ("txt", expected)
+    assert extract_text(data, []) == ("txt", expected, False)
 
 
 # --- DOCX ---
@@ -169,7 +175,7 @@ def test_docx_reads_header_body_table_and_footer_in_order() -> None:
         },
     )
 
-    assert extract_text(data) == ("docx", "Header\nBody\nCell\nFooter")
+    assert extract_text(data, []) == ("docx", "Header\nBody\nCell\nFooter", False)
 
 
 def test_docx_text_box_in_alternate_content_appears_once() -> None:
@@ -181,7 +187,7 @@ def test_docx_text_box_in_alternate_content_appears_once() -> None:
         "</mc:AlternateContent></w:r></w:p>"
     )
 
-    assert extract_text(build_docx(body)) == ("docx", "Box")
+    assert extract_text(build_docx(body), []) == ("docx", "Box", False)
 
 
 def test_docx_tab_stops_add_no_stray_tab() -> None:
@@ -191,7 +197,7 @@ def test_docx_tab_stops_add_no_stray_tab() -> None:
         "<w:noBreakHyphen/><w:t>D</w:t></w:r></w:p>"
     )
 
-    assert extract_text(build_docx(body)) == ("docx", "A\tB\nC-D")
+    assert extract_text(build_docx(body), []) == ("docx", "A\tB\nC-D", False)
 
 
 @pytest.mark.parametrize(("pages", "allowed"), [(4, True), (5, False)])
@@ -200,17 +206,17 @@ def test_docx_page_limit_uses_saved_page_count(pages: int, allowed: bool) -> Non
     data = build_docx(paragraph("CV"), {"docProps/app.xml": app_xml})
 
     if allowed:
-        assert extract_text(data) == ("docx", "CV")
+        assert extract_text(data, []) == ("docx", "CV", False)
     else:
         with pytest.raises(ResumeExtractionError, match=TOO_MANY_PAGES_MESSAGE):
-            extract_text(data)
+            extract_text(data, [])
 
 
 def test_docx_over_size_cap_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service, "MAX_DOCX_XML_BYTES", 100)
 
     with pytest.raises(ResumeExtractionError, match="too large"):
-        extract_text(build_docx(paragraph("x" * 200)))
+        extract_text(build_docx(paragraph("x" * 200)), [])
 
 
 def entity_bomb_document() -> str:
@@ -246,7 +252,7 @@ def entity_bomb_document() -> str:
 )
 def test_malformed_docx_xml_is_unreadable_not_a_crash(data: bytes) -> None:
     with pytest.raises(ResumeExtractionError) as error:
-        extract_text(data)
+        extract_text(data, [])
     assert str(error.value) == UNREADABLE_MESSAGE
 
 
@@ -260,10 +266,11 @@ def test_malformed_docx_xml_is_unreadable_not_a_crash(data: bytes) -> None:
         (["Page one", "Page two"], "Page one\n\nPage two"),
     ],
 )
-def test_pdf_text_layer_is_read(
-    make_pdf: Callable[..., bytes], pages: list[str], expected: str
+def test_pdf_text_layer_is_read_without_ocr(
+    make_pdf: Callable[..., bytes], fake_openai: FakeOpenAI, pages: list[str], expected: str
 ) -> None:
-    assert extract_text(make_pdf(pages)) == ("pdf", expected)
+    assert extract_text(make_pdf(pages), []) == ("pdf", expected, False)
+    assert fake_openai.ocr_calls == []
 
 
 def test_pdf_link_addresses_are_appended_once_and_only_web_links(
@@ -280,32 +287,152 @@ def test_pdf_link_addresses_are_appended_once_and_only_web_links(
         ),
     )
 
-    assert extract_text(pdf) == (
+    assert extract_text(pdf, []) == (
         "pdf",
         "Jane Doe GitHub LinkedIn www.janedoe.dev\n\nLinks in the PDF:\n"
         "https://github.com/janedoe\nhttps://www.linkedin.com/in/janedoe",
+        False,
     )
 
 
 def test_pdf_with_four_pages_is_accepted(make_pdf: Callable[..., bytes]) -> None:
-    assert extract_text(make_pdf(["1", "2", "3", "4"])) == ("pdf", "1\n\n2\n\n3\n\n4")
+    assert extract_text(make_pdf(["1", "2", "3", "4"]), []) == ("pdf", "1\n\n2\n\n3\n\n4", False)
+
+
+def test_pdf_without_a_text_layer_is_read_by_ocr(
+    make_pdf: Callable[..., bytes], fake_openai: FakeOpenAI
+) -> None:
+    scan = make_pdf(["", ""])
+    fake_openai.ocr_text = "  Jane Doe\r\njane.doe@example.com\x00\n"
+    ai_calls: list[AiCall] = []
+
+    assert extract_text(scan, ai_calls) == ("pdf", "Jane Doe\njane.doe@example.com", True)
+    assert len(fake_openai.ocr_calls) == 1
+    assert [call.call_type for call in ai_calls] == ["ocr"]
+    sent_file = fake_openai.ocr_calls[0]["input"][0]["content"][0]["file_data"]
+    assert sent_file == "data:application/pdf;base64," + base64.b64encode(scan).decode()
+
+
+def test_pdf_whose_ocr_finds_no_text_is_empty(
+    make_pdf: Callable[..., bytes], fake_openai: FakeOpenAI
+) -> None:
+    fake_openai.ocr_text = " \n\t"
+
+    with pytest.raises(ResumeExtractionError) as error:
+        extract_text(make_pdf([""]), [])
+    assert str(error.value) == EMPTY_MESSAGE
+
+
+def test_the_pdfium_lock_is_not_held_while_openai_reads_the_scan(
+    make_pdf: Callable[..., bytes], fake_openai: FakeOpenAI
+) -> None:
+    """OCR takes 10-30 s; holding the lock would block every other PDF upload meanwhile."""
+    lock_held_during_ocr = []
+    ocr = fake_openai.create
+
+    def spy(**kwargs: object) -> SimpleNamespace:
+        lock_held_during_ocr.append(PDFIUM_LOCK.locked())
+        return ocr(**kwargs)
+
+    fake_openai.responses.create = spy
+
+    extract_text(make_pdf([""]), [])
+
+    assert lock_held_during_ocr == [False]
 
 
 @pytest.mark.parametrize(
     ("pages", "encrypted", "message"),
     [
-        ([""], False, SCANNED_PDF_MESSAGE),
         (["1", "2", "3", "4", "5"], False, TOO_MANY_PAGES_MESSAGE),
+        ([""] * 5, False, TOO_MANY_PAGES_MESSAGE),
         (["Secret"], True, PASSWORD_MESSAGE),
     ],
-    ids=["blank-page", "five-pages", "password"],
+    ids=["five-pages", "five-page-scan", "password"],
 )
-def test_pdf_rejections(
-    make_pdf: Callable[..., bytes], pages: list[str], encrypted: bool, message: str
+def test_pdf_rejections_come_before_any_ocr(
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+    pages: list[str],
+    encrypted: bool,
+    message: str,
 ) -> None:
     with pytest.raises(ResumeExtractionError) as error:
-        extract_text(make_pdf(pages, encrypted=encrypted))
+        extract_text(make_pdf(pages, encrypted=encrypted), [])
     assert str(error.value) == message
+    assert fake_openai.ocr_calls == []
+
+
+# --- structure_resume: the OCR retry when the AI finds no name or email ---
+
+BLANK_EMAIL = FAKE_RESUME_DATA.model_copy(update={"email": ""})
+LINKS = "https://github.com/janedoe\nhttps://www.linkedin.com/in/janedoe"
+
+
+def test_text_with_a_name_and_email_is_structured_once(fake_openai: FakeOpenAI) -> None:
+    assert structure_resume(b"%PDF-", "pdf", "Jane Doe", False, []) == (
+        "Jane Doe",
+        FAKE_RESUME_DATA,
+    )
+    assert len(fake_openai.calls) == 1
+    assert fake_openai.ocr_calls == []
+
+
+def test_pdf_missing_a_contact_is_ocrd_once_and_keeps_its_links(
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.results = [BLANK_EMAIL]
+    text = "Garbled text layer" + LINKS_HEADING + LINKS
+    expected_text = FAKE_OCR_TEXT + LINKS_HEADING + LINKS
+    ai_calls: list[AiCall] = []
+
+    result = structure_resume(b"%PDF-", "pdf", text, False, ai_calls)
+
+    assert result == (expected_text, FAKE_RESUME_DATA)
+    assert [call["input"] for call in fake_openai.calls] == [text, expected_text]
+    assert len(fake_openai.ocr_calls) == 1
+    assert [call.call_type for call in ai_calls] == ["structuring", "ocr_retry", "structuring"]
+
+
+def test_pdf_without_links_is_retried_with_the_ocr_text_alone(fake_openai: FakeOpenAI) -> None:
+    fake_openai.results = [BLANK_EMAIL]
+
+    assert structure_resume(b"%PDF-", "pdf", "Garbled", False, [])[0] == FAKE_OCR_TEXT
+
+
+@pytest.mark.parametrize(
+    ("file_type", "read_by_ocr"),
+    [("txt", False), ("docx", False), ("doc", False), ("pdf", True)],
+    ids=["txt", "docx", "doc", "pdf-already-ocrd"],
+)
+def test_no_ocr_retry_unless_a_pdf_was_read_from_its_text_layer(
+    fake_openai: FakeOpenAI, file_type: str, read_by_ocr: bool
+) -> None:
+    fake_openai.result = BLANK_EMAIL
+
+    with pytest.raises(MissingContactError):
+        structure_resume(b"data", file_type, "Jane Doe", read_by_ocr, [])
+    assert len(fake_openai.calls) == 1
+    assert fake_openai.ocr_calls == []
+
+
+def test_a_second_miss_after_ocr_is_a_missing_contact_error(fake_openai: FakeOpenAI) -> None:
+    fake_openai.result = BLANK_EMAIL
+
+    with pytest.raises(MissingContactError):
+        structure_resume(b"%PDF-", "pdf", "Garbled", False, [])
+    assert len(fake_openai.calls) == 2
+    assert len(fake_openai.ocr_calls) == 1
+
+
+def test_empty_ocr_on_retry_reraises_the_original_error(fake_openai: FakeOpenAI) -> None:
+    fake_openai.result = BLANK_EMAIL
+    fake_openai.ocr_text = "\n \x00"
+
+    with pytest.raises(MissingContactError):
+        structure_resume(b"%PDF-", "pdf", "Garbled", False, [])
+    assert len(fake_openai.calls) == 1
+    assert len(fake_openai.ocr_calls) == 1
 
 
 # --- DOC ---
@@ -357,9 +484,10 @@ def test_clean_doc_text(raw: str, expected: str) -> None:
 
 @pytest.mark.skipif(not REAL_DOC.exists(), reason="Word 97 sample file not on this machine")
 def test_real_word_97_doc_is_read() -> None:
-    file_type, text = extract_text(REAL_DOC.read_bytes())
+    file_type, text, read_by_ocr = extract_text(REAL_DOC.read_bytes(), [])
 
     assert file_type == "doc"
+    assert not read_by_ocr
     assert "This document has been IRM protected by policy." in text
 
 
@@ -372,10 +500,10 @@ def test_doc_page_limit_uses_saved_page_count(
     monkeypatch.setattr(olefile.OleFileIO, "get_metadata", lambda self: metadata)
 
     if allowed:
-        assert extract_text(REAL_DOC.read_bytes())[0] == "doc"
+        assert extract_text(REAL_DOC.read_bytes(), [])[0] == "doc"
     else:
         with pytest.raises(ResumeExtractionError, match=TOO_MANY_PAGES_MESSAGE):
-            extract_text(REAL_DOC.read_bytes())
+            extract_text(REAL_DOC.read_bytes(), [])
 
 
 @pytest.mark.skipif(not REAL_DOC.exists(), reason="Word 97 sample file not on this machine")
@@ -392,7 +520,7 @@ def test_real_doc_with_patched_fib_is_rejected(offset: int, value: int, message:
     struct.pack_into("<H", data, fib + offset, value)
 
     with pytest.raises(ResumeExtractionError) as error:
-        extract_text(bytes(data))
+        extract_text(bytes(data), [])
     assert str(error.value) == message
 
 
@@ -411,7 +539,7 @@ def test_real_doc_with_patched_fib_is_rejected(offset: int, value: int, message:
 )
 def test_unsupported_types_are_rejected(data: bytes) -> None:
     with pytest.raises(UnsupportedFileTypeError):
-        extract_text(data)
+        extract_text(data, [])
 
 
 @pytest.mark.parametrize(
@@ -427,7 +555,7 @@ def test_unsupported_types_are_rejected(data: bytes) -> None:
 )
 def test_unusable_files_are_rejected(data: bytes, message: str) -> None:
     with pytest.raises(ResumeExtractionError) as error:
-        extract_text(data)
+        extract_text(data, [])
     assert str(error.value) == message
 
 
@@ -441,7 +569,9 @@ def test_get_resume_intake_returns_the_stored_row(db_session: Session) -> None:
         concerns="Little cloud experience",
         overall_notes="Move to the next round",
     )
-    saved = save_resume_intake(db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, answers)
+    saved = save_resume_intake(
+        db_session, "cv.txt", "txt", "Jane Doe", FAKE_RESUME_DATA, answers, []
+    )
 
     intake = get_resume_intake(db_session, saved.id)
 

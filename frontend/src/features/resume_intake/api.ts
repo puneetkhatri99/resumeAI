@@ -59,6 +59,8 @@ export type IntakeSummary = {
   candidate_email: string | null
   rating: number
   work_mode: ResumeIntake['work_mode']
+  /** What the intake's AI calls cost in USD; null on intakes stored before AI usage was recorded. */
+  ai_cost_usd: number | null
 }
 
 /** A page of past interviews, newest first. Mirrors IntakeList in backend/app/features/resume_intake/schemas.py. */

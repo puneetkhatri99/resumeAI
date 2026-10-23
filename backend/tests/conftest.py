@@ -1,6 +1,7 @@
 """Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI."""
 
 from collections.abc import Iterator
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -51,6 +52,17 @@ FAKE_RESUME_DATA = ResumeData(
     projects=[Project(name="Resume parser", description=None, link=None, technologies=["FastAPI"])],
     certificates=[Certificate(name="AWS Cloud Practitioner", issuer="AWS", date="2022")],
 )
+FAKE_OCR_TEXT = "Jane Doe\njane.doe@example.com\nSoftware engineer, read by OCR"
+# The usage every fake response reports, shaped like the SDK's ResponseUsage. At gpt-4.1-mini
+# prices: 800 x 0.40 + 200 x 0.10 + 300 x 1.60 = 820 per 1M tokens, so $0.00082 per call.
+FAKE_USAGE = SimpleNamespace(
+    input_tokens=1000,
+    input_tokens_details=SimpleNamespace(cached_tokens=200, cache_write_tokens=0),
+    output_tokens=300,
+    output_tokens_details=SimpleNamespace(reasoning_tokens=0),
+    total_tokens=1300,
+)
+FAKE_CALL_COST = Decimal("0.00082")
 
 
 def make_openai_status_error(
@@ -63,23 +75,40 @@ def make_openai_status_error(
 
 
 class FakeOpenAI:
-    """Stand-in for the OpenAI client: `responses.parse` records its kwargs in `calls`.
+    """Stand-in for the OpenAI client.
 
-    It returns `result` as `output_parsed`, or raises `error` when a test sets one.
+    `responses.parse` (AI extraction) records its kwargs in `calls`. It returns the queued
+    `results` first, one per call, then `result`, as `output_parsed`; or raises `error`.
+    `responses.create` (OCR) records its kwargs in `ocr_calls`. It returns `ocr_text` as
+    `output_text` with `ocr_status` as `status`, or raises `ocr_error`.
+    Every response carries FAKE_USAGE as its `usage`.
     """
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.results: list[ResumeData | None] = []
         self.result: ResumeData | None = FAKE_RESUME_DATA
         self.error: Exception | None = None
-        self.responses = SimpleNamespace(parse=self.parse)
+        self.ocr_calls: list[dict[str, Any]] = []
+        self.ocr_text = FAKE_OCR_TEXT
+        self.ocr_status = "completed"
+        self.ocr_error: Exception | None = None
+        self.responses = SimpleNamespace(parse=self.parse, create=self.create)
 
     def parse(self, **kwargs: Any) -> SimpleNamespace:
-        """Record the call, then raise `error` or return `result` the way the SDK does."""
+        """Record the call, then raise `error` or return the next result the way the SDK does."""
         self.calls.append(kwargs)
         if self.error is not None:
             raise self.error
-        return SimpleNamespace(output_parsed=self.result)
+        parsed = self.results.pop(0) if self.results else self.result
+        return SimpleNamespace(output_parsed=parsed, usage=FAKE_USAGE)
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        """Record the OCR call, then raise `ocr_error` or return `ocr_text` the way the SDK does."""
+        self.ocr_calls.append(kwargs)
+        if self.ocr_error is not None:
+            raise self.ocr_error
+        return SimpleNamespace(output_text=self.ocr_text, status=self.ocr_status, usage=FAKE_USAGE)
 
 
 @pytest.fixture(autouse=True)

@@ -2,7 +2,8 @@
 AI extracted from it (resume_structuring) and the answers, and read a stored intake back.
 
 Supported CV types, detected by content (never by filename): PDF, DOCX, legacy Word 97+ DOC
-and plain text (HTML saved as .doc counts as text). CV text is never logged.
+and plain text (HTML saved as .doc counts as text). A scanned PDF is read by OCR
+(resume_structuring.transcribe_pdf). CV text is never logged.
 """
 
 import codecs
@@ -13,7 +14,7 @@ import re
 import struct
 import threading
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from xml.etree import ElementTree
 
 import olefile
@@ -22,9 +23,15 @@ import pypdfium2.raw as pdfium_c
 from sqlalchemy import Row, select
 from sqlalchemy.orm import Session
 
+from app.features.ai_usage.service import AiCall, add_ai_calls, intake_cost_column
 from app.features.resume_intake.models import ResumeIntake
 from app.features.resume_intake.schemas import FileType, InterviewAnswers, clean_text
-from app.features.resume_structuring.service import ResumeData
+from app.features.resume_structuring.service import (
+    MissingContactError,
+    ResumeData,
+    extract_resume_data,
+    transcribe_pdf,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +45,6 @@ TOO_MANY_PAGES_MESSAGE = (
 PASSWORD_MESSAGE = "The CV is password-protected. Remove the password and upload it again."
 UNREADABLE_MESSAGE = "The CV file is damaged or unreadable."
 EMPTY_MESSAGE = "No text was found in the CV."
-SCANNED_PDF_MESSAGE = (
-    "The PDF has no text layer — probably a scan; scanned resumes aren't supported yet."
-)
 OLD_WORD_MESSAGE = "Word 6/95 .doc files aren't supported. Save the CV as .docx or PDF and retry."
 DOCX_TOO_LARGE_MESSAGE = "The DOCX file is too large to read."
 
@@ -62,6 +66,8 @@ DOCX_HEADER_PART = re.compile(r"word/header\d*\.xml")
 DOCX_FOOTER_PART = re.compile(r"word/footer\d*\.xml")
 # A PDF link annotation's address counts as a web link when it starts like this.
 WEB_URL = re.compile(r"(https?://|www\.)\S+", re.IGNORECASE)
+# read_pdf puts the link addresses after this; structure_resume keeps them when it OCRs.
+LINKS_HEADING = "\n\nLinks in the PDF:\n"
 # pPr holds tab-stop definitions (not text); Fallback repeats the text box shown by Choice.
 DOCX_SKIPPED_TAGS = {"pPr", "Fallback"}
 
@@ -84,8 +90,10 @@ def save_resume_intake(
     text: str,
     structured_data: ResumeData,
     answers: InterviewAnswers,
+    ai_calls: list[AiCall],
 ) -> ResumeIntake:
-    """Store the CV's text and structured data with the cleaned filename and the answers.
+    """Store the CV's text and structured data with the cleaned filename and the answers, and
+    the upload's AI calls linked to it, in one commit.
 
     Only stores: the text comes from extract_text and the structured data from
     resume_structuring, so nothing is written when either of those fails.
@@ -98,6 +106,8 @@ def save_resume_intake(
         **answers.model_dump(),
     )
     db.add(intake)
+    db.flush()  # gives the intake its id, for the calls' link
+    add_ai_calls(db, ai_calls, intake.id)
     db.commit()
     db.refresh(intake)
     return intake
@@ -116,7 +126,8 @@ def list_resume_intakes(db: Session, before_id: int | None, limit: int) -> tuple
     With `before_id`, only intakes with a smaller id are listed: paging by id, so a submit made
     while someone pages can't shift rows into duplicates. Only the columns the past-interviews
     list shows are read (never the CV text); the name and email come from structured_data and
-    are None for rows stored before AI extraction existed.
+    are None for rows stored before AI extraction existed. ai_cost_usd sums the intake's AI
+    calls (ai_usage); it is None for intakes from before usage was recorded.
     """
     query = (
         select(
@@ -127,6 +138,7 @@ def list_resume_intakes(db: Session, before_id: int | None, limit: int) -> tuple
             ResumeIntake.work_mode,
             ResumeIntake.structured_data["name"].astext.label("candidate_name"),
             ResumeIntake.structured_data["email"].astext.label("candidate_email"),
+            intake_cost_column(ResumeIntake.id).label("ai_cost_usd"),
         )
         .order_by(ResumeIntake.id.desc())
         .limit(limit + 1)
@@ -137,10 +149,25 @@ def list_resume_intakes(db: Session, before_id: int | None, limit: int) -> tuple
     return rows[:limit], len(rows) > limit
 
 
-def extract_text(data: bytes) -> tuple[FileType, str]:
-    """Detect the CV's type from its bytes and return (file_type, cleaned text).
+def list_candidate_names(db: Session, intake_ids: Collection[int]) -> dict[int, str | None]:
+    """Return the AI-extracted candidate name of each of these intakes, by id.
 
-    Any unexpected parser failure becomes ResumeExtractionError; only its type is logged.
+    Ids with no intake are left out; the name is None for intakes from before AI extraction.
+    The AI usage panel (ai_usage) names its recent calls with it.
+    """
+    query = select(ResumeIntake.id, ResumeIntake.structured_data["name"].astext).where(
+        ResumeIntake.id.in_(intake_ids)
+    )
+    return dict(db.execute(query).all())
+
+
+def extract_text(data: bytes, ai_calls: list[AiCall]) -> tuple[FileType, str, bool]:
+    """Detect the CV's type from its bytes and return (file_type, cleaned text, read_by_ocr).
+
+    A PDF with no text layer (a scan) is read by OCR, so read_by_ocr is True; its page and
+    password checks run first, which caps what OCR can cost. The OCR call is recorded in
+    `ai_calls`. Any unexpected parser failure becomes ResumeExtractionError; only its type is
+    logged. An OCR failure stays an AiExtractionError (HTTP 502).
     """
     reader: Callable[[bytes], str]
     if data.startswith(OLE_MAGIC):
@@ -165,13 +192,44 @@ def extract_text(data: bytes) -> tuple[FileType, str]:
         raise ResumeExtractionError(UNREADABLE_MESSAGE) from None
 
     text = clean_text(text)
+    read_by_ocr = file_type == "pdf" and not text
+    if read_by_ocr:
+        # Outside the try (so it isn't "unreadable") and outside PDFIUM_LOCK (OpenAI is slow).
+        text = clean_text(transcribe_pdf(data, ai_calls, "ocr"))
     if not text:
         raise ResumeExtractionError(EMPTY_MESSAGE)
-    return file_type, text
+    return file_type, text, read_by_ocr
+
+
+def structure_resume(
+    data: bytes, file_type: FileType, text: str, read_by_ocr: bool, ai_calls: list[AiCall]
+) -> tuple[str, ResumeData]:
+    """Have AI structure the CV text; return (the text it structured, the structured data).
+
+    If the AI finds no name or email in a PDF read from its text layer, the PDF is read once
+    more by OCR and structured again: the name or email may be in an image header, or the text
+    layer may be garbled (a broken font encoding) or hold only a watermark. The "Links in the
+    PDF" block is kept, because OCR can't see link annotations. The returned text is the one
+    that was structured, so the stored text matches the stored data. A second miss is a 422.
+    Every AI call made here is recorded in `ai_calls`.
+    """
+    try:
+        return text, extract_resume_data(text, ai_calls)
+    except MissingContactError:
+        if file_type != "pdf" or read_by_ocr:
+            raise
+        ocr_text = clean_text(transcribe_pdf(data, ai_calls, "ocr_retry"))
+        if not ocr_text:
+            raise
+    _, links_heading, links = text.partition(LINKS_HEADING)
+    ocr_text += links_heading + links
+    return ocr_text, extract_resume_data(ocr_text, ai_calls)
 
 
 def read_pdf(data: bytes) -> str:
-    """Return the text of every page, separated by blank lines. Rejects scans and long CVs."""
+    """Return the text of every page, separated by blank lines, or "" when the PDF has no text
+    layer (a scan, which extract_text then OCRs). Rejects CVs over MAX_PAGES.
+    """
     with PDFIUM_LOCK:
         try:
             document = pdfium.PdfDocument(data)
@@ -197,11 +255,11 @@ def read_pdf(data: bytes) -> str:
 
     text = "\n\n".join(page_texts)
     if not text.strip():
-        raise ResumeExtractionError(SCANNED_PDF_MESSAGE)
+        return ""
     # Appended so the AI sees the addresses behind clickable words like "GitHub" (Overleaf CVs).
     unique_urls = [url for url in dict.fromkeys(link_urls) if url not in text]
     if unique_urls:
-        text += "\n\nLinks in the PDF:\n" + "\n".join(unique_urls)
+        text += LINKS_HEADING + "\n".join(unique_urls)
     return text
 
 

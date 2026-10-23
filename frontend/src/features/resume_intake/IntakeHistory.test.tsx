@@ -13,8 +13,9 @@ const ROW: IntakeSummary = {
   candidate_email: 'jane.doe@example.com',
   rating: 4,
   work_mode: 'onsite',
+  ai_cost_usd: 0.0044,
 }
-// Stored before AI extraction existed: no name or email.
+// Stored before AI extraction (and AI usage) existed: no name, email or cost.
 const OLD_ROW: IntakeSummary = {
   ...ROW,
   id: 12,
@@ -23,6 +24,7 @@ const OLD_ROW: IntakeSummary = {
   candidate_email: null,
   rating: 2,
   work_mode: 'remote',
+  ai_cost_usd: null,
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -34,18 +36,20 @@ describe('IntakeHistory', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists each interview with name, email, date, rating and work mode, linking to its result', async () => {
+  it('lists each interview with name, email, date, AI cost, rating and work mode, linking to its result', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ items: [ROW, OLD_ROW], has_more: false }))))
     render(<IntakeHistory />)
 
     const row = await screen.findByRole('link', { name: /Jane Doe/ })
     expect(row).toHaveAttribute('href', '#/history/359')
     const date = new Date(ROW.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-    for (const text of ['jane.doe@example.com', date, '4 / 5', 'On-site']) {
+    for (const text of ['jane.doe@example.com', date, '$0.0044', '4 / 5', 'On-site']) {
       expect(within(row).getByText(text)).toBeInTheDocument()
     }
-    // No AI data: the file name stands in for the name.
-    expect(screen.getByRole('link', { name: /old_cv\.txt/ })).toHaveAttribute('href', '#/history/12')
+    // No AI data: the file name stands in for the name, and there is no cost.
+    const oldRow = screen.getByRole('link', { name: /old_cv\.txt/ })
+    expect(oldRow).toHaveAttribute('href', '#/history/12')
+    expect(within(oldRow).getByText('—')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
   })
 

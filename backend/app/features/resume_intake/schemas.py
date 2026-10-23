@@ -77,6 +77,8 @@ class IntakeSummary(BaseModel):
 
     candidate_name and candidate_email come from the AI-extracted details, so they are null on
     rows stored before AI extraction existed; the list then shows original_filename.
+    ai_cost_usd is the summed cost of the intake's AI calls (ai_usage), null for intakes stored
+    before usage was recorded.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -88,6 +90,7 @@ class IntakeSummary(BaseModel):
     candidate_email: str | None
     rating: Rating
     work_mode: WorkMode
+    ai_cost_usd: float | None
 
 
 class IntakeList(BaseModel):

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatUsd } from '../../shared/format.ts'
 import { listResumeIntakes, type IntakeSummary } from './api.ts'
 import './resumeIntake.css'
 
@@ -22,7 +23,8 @@ function initials(name: string): string {
 /**
  * The past-interviews page (#/history): stored intakes newest first, 20 at a time with "Load more".
  * Each row links to #/history/{id}, which opens the full result. A row from before AI extraction has no
- * name or email, so it shows the CV's file name.
+ * name or email, so it shows the CV's file name. Each row also shows what its AI calls cost ("—" for intakes
+ * from before AI usage was recorded).
  */
 export function IntakeHistory() {
   const [items, setItems] = useState<IntakeSummary[]>([])
@@ -80,6 +82,10 @@ export function IntakeHistory() {
                     </span>
                     <span className="history-date">
                       {new Date(item.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                    <span className="history-cost">
+                      <span className="history-cost-label">AI cost</span>
+                      {formatUsd(item.ai_cost_usd)}
                     </span>
                     <span className="history-badges">
                       <span className="pill pill-violet">{`${item.rating} / 5`}</span>

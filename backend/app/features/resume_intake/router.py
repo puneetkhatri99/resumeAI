@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.features.ai_usage.service import AiCall, save_ai_calls_without_intake
 from app.features.resume_intake.schemas import (
     IntakeEvent,
     IntakeList,
@@ -31,12 +32,9 @@ from app.features.resume_intake.service import (
     get_resume_intake,
     list_resume_intakes,
     save_resume_intake,
+    structure_resume,
 )
-from app.features.resume_structuring.service import (
-    AiExtractionError,
-    ResumeStructuringError,
-    extract_resume_data,
-)
+from app.features.resume_structuring.service import AiExtractionError, ResumeStructuringError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/resume_intake", tags=["resume_intake"])
@@ -98,9 +96,12 @@ def create_intake(
 ) -> Iterator[IntakeEvent]:
     """Stream "reading", "extracting", then "done" with the stored record.
 
+    A scanned PDF is read by OCR during "reading"; a PDF whose text has no name or email is
+    OCR'd once more during "extracting" (see service.structure_resume).
     Every expected failure ends the stream with one "error" event instead: 415 if the CV isn't
-    a PDF, DOCX, DOC or TXT; 422 if its text can't be used or has no name or email; 502 if the
-    AI call fails; 503 if the database is unavailable. Nothing is stored on any error.
+    a PDF, DOCX, DOC or TXT; 422 if its text can't be used or has no name or email; 502 if an
+    AI call (OCR or extraction) fails; 503 if the database is unavailable. No intake is stored
+    on any error, but the AI calls OpenAI answered (and billed) are stored unlinked (ai_usage).
     Invalid answers (422) and an oversized request (413) are plain HTTP errors, sent before
     the stream starts.
     """
@@ -113,15 +114,18 @@ def create_intake(
         concerns=concerns,
         overall_notes=overall_notes,
     )
+    # Every AI call OpenAI answers, collected for the usage panel (ai_usage).
+    ai_calls: list[AiCall] = []
     # An exception escaping here would cut the stream with no final event, so every expected
     # one becomes an "error" event.
     try:
         yield IntakeEvent(stage="reading")
-        file_type, text = extract_text(file.file.read())
+        data = file.file.read()
+        file_type, text, read_by_ocr = extract_text(data, ai_calls)
         yield IntakeEvent(stage="extracting")
-        structured_data = extract_resume_data(text)
+        text, structured_data = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
         intake = save_resume_intake(
-            db, file.filename or "", file_type, text, structured_data, answers
+            db, file.filename or "", file_type, text, structured_data, answers, ai_calls
         )
     except UnsupportedFileTypeError as exc:
         status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
@@ -136,4 +140,5 @@ def create_intake(
     else:
         yield IntakeEvent(stage="done", result=ResumeIntakeResponse.model_validate(intake))
         return
+    save_ai_calls_without_intake(db, ai_calls)
     yield IntakeEvent(stage="error", status=status_code, detail=detail)

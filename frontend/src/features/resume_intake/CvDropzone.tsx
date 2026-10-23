@@ -124,7 +124,7 @@ export function CvDropzone() {
       <ul className="cv-rules">
         <li>PDF, DOCX, DOC or TXT</li>
         <li>Up to 4 pages and 10 MB</li>
-        <li>Scanned PDFs can't be read yet</li>
+        <li>Scanned PDFs are read with OCR (slower)</li>
         <li>Only the text is saved, never the file</li>
       </ul>
     </section>

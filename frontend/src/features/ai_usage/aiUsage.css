@@ -1,0 +1,101 @@
+/* ai_usage: the layout of the totals cards and the usage tables. The look comes from src/app/app.css. */
+
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.usage-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.usage-total h3 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.usage-total-cost {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--indigo);
+}
+
+.usage-total-figures {
+  margin: 12px 0 0;
+  display: flex;
+  gap: 32px;
+}
+
+.usage-total-figures dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.usage-total-figures dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* A wide table scrolls inside its card on a narrow screen instead of widening the page. */
+.usage-table-card {
+  overflow-x: auto;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-table caption {
+  padding-bottom: 12px;
+  text-align: left;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.usage-table th,
+.usage-table td {
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.usage-table thead th {
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.usage-table tbody th {
+  font-weight: 600;
+}
+
+.usage-table tbody tr + tr {
+  border-top: 1px solid var(--line-soft);
+}
+
+/* "+ 3 unpriced calls" next to a cost that leaves those calls out. */
+.usage-unpriced {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--orange-dark);
+}
+
+.usage-message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}

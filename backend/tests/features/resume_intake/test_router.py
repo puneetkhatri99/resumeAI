@@ -17,18 +17,28 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.features.ai_usage.models import AiCall
+from app.features.ai_usage.service import add_ai_calls, record_ai_call
 from app.features.resume_intake.models import ResumeIntake
 from app.features.resume_intake.schemas import ResumeIntakeResponse
-from app.features.resume_intake.service import SCANNED_PDF_MESSAGE, TOO_MANY_PAGES_MESSAGE
+from app.features.resume_intake.service import EMPTY_MESSAGE, LINKS_HEADING, TOO_MANY_PAGES_MESSAGE
 from app.features.resume_structuring.schemas import ResumeData
 from app.features.resume_structuring.service import (
     AI_FAILED_MESSAGE,
     MAX_CV_TEXT_CHARS,
     MISSING_CONTACT_MESSAGE,
+    OPENAI_MODEL,
     TOO_LONG_MESSAGE,
 )
 from app.main import MAX_REQUEST_BYTES, app
-from tests.conftest import FAKE_RESUME_DATA, FakeOpenAI, make_openai_status_error
+from tests.conftest import (
+    FAKE_CALL_COST,
+    FAKE_OCR_TEXT,
+    FAKE_RESUME_DATA,
+    FAKE_USAGE,
+    FakeOpenAI,
+    make_openai_status_error,
+)
 
 URL = "/api/resume_intake"
 ANSWERS = {
@@ -47,6 +57,15 @@ class FailingCommitSession:
     """Stand-in session whose commit fails the way it does when Postgres is down."""
 
     def add(self, instance: object) -> None:
+        pass
+
+    def add_all(self, instances: object) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+    def rollback(self) -> None:
         pass
 
     def commit(self) -> None:
@@ -130,17 +149,221 @@ def test_png_is_a_415_event(client: TestClient) -> None:
     assert "Unsupported file type" in events[-1]["detail"]
 
 
-def test_blank_pdf_is_a_422_event(client: TestClient, make_pdf: Callable[..., bytes]) -> None:
-    blank_pdf = ("cv.pdf", make_pdf([""]), "application/pdf")
+def test_scanned_pdf_is_read_by_ocr_and_stored(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    """db_session keeps the stored row out of the real database (it is rolled back)."""
+    scan = ("scan.pdf", make_pdf([""]), "application/pdf")
 
-    events = read_events(client.post(URL, data=ANSWERS, files={"file": blank_pdf}))
+    events = read_events(client.post(URL, data=ANSWERS, files={"file": scan}))
 
-    assert events[-1] == {
-        "stage": "error",
-        "result": None,
-        "status": 422,
-        "detail": SCANNED_PDF_MESSAGE,
-    }
+    assert [event["stage"] for event in events] == ["reading", "extracting", "done"]
+    assert len(fake_openai.ocr_calls) == 1
+    assert fake_openai.calls[0]["input"] == FAKE_OCR_TEXT
+    body = events[-1]["result"]
+    assert body["file_type"] == "pdf"
+    assert body["extracted_text"] == FAKE_OCR_TEXT
+    assert db_session.get(ResumeIntake, body["id"]).extracted_text == FAKE_OCR_TEXT
+
+
+def test_ocr_failure_is_a_502_event_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    request = httpx2.Request("POST", "https://api.openai.com/v1/responses")
+    fake_openai.ocr_error = openai.APITimeoutError(request=request)
+    rows_before = count_rows(db_session)
+    scan = ("scan.pdf", make_pdf([""]), "application/pdf")
+
+    events = read_events(client.post(URL, data=ANSWERS, files={"file": scan}))
+
+    assert [event["stage"] for event in events] == ["reading", "error"]
+    assert events[-1]["status"] == 502
+    assert events[-1]["detail"] == AI_FAILED_MESSAGE
+    assert fake_openai.calls == []
+    assert count_rows(db_session) == rows_before
+
+
+def test_pdf_without_an_email_is_ocrd_and_the_ocr_text_is_stored(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    """The stored text is the one the AI structured, with the PDF's link addresses kept."""
+    fake_openai.results = [fake_openai.result.model_copy(update={"email": ""})]
+    pdf = ("cv.pdf", make_pdf(["Jane Doe GitHub"], link_urls=("https://github.com/janedoe",)))
+
+    events = read_events(client.post(URL, data=ANSWERS, files={"file": pdf}))
+
+    assert [event["stage"] for event in events] == ["reading", "extracting", "done"]
+    expected_text = FAKE_OCR_TEXT + LINKS_HEADING + "https://github.com/janedoe"
+    body = events[-1]["result"]
+    assert body["extracted_text"] == expected_text
+    assert body["structured_data"] == FAKE_RESUME_DATA.model_dump()
+    assert len(fake_openai.ocr_calls) == 1
+    assert db_session.get(ResumeIntake, body["id"]).extracted_text == expected_text
+
+
+# --- OCR edge cases (QA, 2026-10-23): each of these must store nothing ---
+
+OCR_REFUSAL = "I'm sorry, but I can't help with that."
+NO_CONTACT = FAKE_RESUME_DATA.model_copy(update={"name": "", "email": ""})
+BLANK_EMAIL = FAKE_RESUME_DATA.model_copy(update={"email": ""})
+OCR_TIMEOUT = openai.APITimeoutError(request=httpx2.Request("POST", "https://api.openai.com"))
+
+
+def post_pdf(client: TestClient, pdf: bytes, filename: str = "cv.pdf") -> list[dict[str, Any]]:
+    """Upload a PDF with valid answers and return the stream's events."""
+    return read_events(
+        client.post(URL, data=ANSWERS, files={"file": (filename, pdf, "application/pdf")})
+    )
+
+
+def test_ocr_refusal_sentence_is_a_422_missing_contact_event_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.ocr_text = OCR_REFUSAL
+    fake_openai.result = NO_CONTACT
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf([""]))
+
+    assert [event["stage"] for event in events] == ["reading", "extracting", "error"]
+    assert events[-1]["status"] == 422
+    assert events[-1]["detail"] == MISSING_CONTACT_MESSAGE
+    assert fake_openai.calls[0]["input"] == OCR_REFUSAL
+    assert len(fake_openai.calls) == 1
+    assert len(fake_openai.ocr_calls) == 1  # a scan that was already OCR'd is never OCR'd again
+    assert count_rows(db_session) == rows_before
+
+
+def test_refusal_on_the_ocr_retry_is_a_422_missing_contact_event_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.ocr_text = OCR_REFUSAL
+    fake_openai.results = [BLANK_EMAIL]
+    fake_openai.result = NO_CONTACT
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf(["Jane Doe"]))
+
+    assert [event["stage"] for event in events] == ["reading", "extracting", "error"]
+    assert events[-1]["status"] == 422
+    assert events[-1]["detail"] == MISSING_CONTACT_MESSAGE
+    assert len(fake_openai.calls) == 2
+    assert len(fake_openai.ocr_calls) == 1
+    assert count_rows(db_session) == rows_before
+
+
+def test_empty_ocr_output_is_a_422_event_before_the_ai_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.ocr_text = " \n\t"
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf([""]))
+
+    assert [event["stage"] for event in events] == ["reading", "error"]
+    assert events[-1]["status"] == 422
+    assert events[-1]["detail"] == EMPTY_MESSAGE
+    assert fake_openai.calls == []
+    assert count_rows(db_session) == rows_before
+
+
+def test_ocr_text_over_the_ai_text_cap_is_a_422_event_that_skips_the_ai(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    """A model that loops while transcribing could produce far more text than any CV."""
+    fake_openai.ocr_text = "a" * (MAX_CV_TEXT_CHARS + 1)
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf([""]))
+
+    assert [event["stage"] for event in events] == ["reading", "extracting", "error"]
+    assert events[-1]["status"] == 422
+    assert events[-1]["detail"] == TOO_LONG_MESSAGE
+    assert fake_openai.calls == []
+    assert count_rows(db_session) == rows_before
+
+
+def test_ocr_failure_on_the_retry_is_a_502_event_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.results = [BLANK_EMAIL]
+    fake_openai.ocr_error = OCR_TIMEOUT
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf(["Jane Doe"]))
+
+    assert [event["stage"] for event in events] == ["reading", "extracting", "error"]
+    assert events[-1]["status"] == 502
+    assert events[-1]["detail"] == AI_FAILED_MESSAGE
+    assert len(fake_openai.calls) == 1
+    assert count_rows(db_session) == rows_before
+
+
+def test_ai_refusal_after_the_ocr_retry_is_a_502_event_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.results = [BLANK_EMAIL, None]  # None: the AI refuses the second time
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf(["Jane Doe"]))
+
+    assert events[-1]["status"] == 502
+    assert events[-1]["detail"] == AI_FAILED_MESSAGE
+    assert len(fake_openai.ocr_calls) == 1
+    assert count_rows(db_session) == rows_before
+
+
+@pytest.mark.parametrize(
+    ("pages", "first_parse_misses_the_email"),
+    [([""], False), (["Jane Doe"], True)],
+    ids=["scan-ocr-up-front", "text-layer-ocr-retry"],
+)
+def test_the_uploaded_filename_is_never_sent_to_openai(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+    pages: list[str],
+    first_parse_misses_the_email: bool,
+) -> None:
+    filename = "Zed Hidden-Filename Resume.pdf"
+    fake_openai.results = [BLANK_EMAIL] if first_parse_misses_the_email else []
+
+    events = post_pdf(client, make_pdf(pages), filename)
+
+    assert events[-1]["stage"] == "done"
+    assert len(fake_openai.ocr_calls) == 1
+    sent_to_openai = repr(fake_openai.ocr_calls + fake_openai.calls)
+    assert "Hidden-Filename" not in sent_to_openai
+    assert fake_openai.ocr_calls[0]["input"][0]["content"][0]["filename"] == "cv.pdf"
+    assert events[-1]["result"]["original_filename"] == filename
 
 
 def test_missing_answer_is_422(client: TestClient) -> None:
@@ -166,7 +389,8 @@ def test_rating_of_6_is_422(client: TestClient) -> None:
     assert response.json()["detail"][0]["loc"] == ["body", "rating"]
 
 
-def test_database_down_is_a_503_event(client: TestClient) -> None:
+def test_database_down_is_a_503_event(client: TestClient, caplog: pytest.LogCaptureFixture) -> None:
+    """Saving the AI call unlinked fails too; that is logged by type and the 503 still comes."""
     app.dependency_overrides[get_db] = FailingCommitSession
 
     events = read_events(client.post(URL, data=ANSWERS, files={"file": TXT_CV}))
@@ -174,6 +398,7 @@ def test_database_down_is_a_503_event(client: TestClient) -> None:
     assert events[-1]["stage"] == "error"
     assert events[-1]["status"] == 503
     assert events[-1]["detail"] == "The database is unavailable. Try again later."
+    assert "Could not store the AI usage of a failed upload: OperationalError" in caplog.text
 
 
 def test_request_over_10_mb_without_content_length_is_413(client: TestClient) -> None:
@@ -245,30 +470,27 @@ def test_answer_with_nothing_left_after_cleaning_is_422(client: TestClient, blan
     ("filename", "data", "status"),
     [
         ("photo.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", 415),
-        ("scan.pdf", None, 422),
         ("empty.txt", b"", 422),
     ],
-    ids=["unsupported-type", "scanned-pdf", "empty-file"],
+    ids=["unsupported-type", "empty-file"],
 )
 def test_unreadable_cv_stops_before_the_ai_and_stores_nothing(
     client: TestClient,
     db_session: Session,
-    make_pdf: Callable[..., bytes],
     fake_openai: FakeOpenAI,
     filename: str,
-    data: bytes | None,
+    data: bytes,
     status: int,
 ) -> None:
     rows_before = count_rows(db_session)
 
-    response = client.post(
-        URL, data=ANSWERS, files={"file": (filename, make_pdf([""]) if data is None else data)}
-    )
+    response = client.post(URL, data=ANSWERS, files={"file": (filename, data)})
 
     events = read_events(response)
     assert [event["stage"] for event in events] == ["reading", "error"]
     assert events[-1]["status"] == status
     assert fake_openai.calls == []
+    assert fake_openai.ocr_calls == []
     assert count_rows(db_session) == rows_before
 
 
@@ -506,7 +728,7 @@ def test_keepalive_pings_during_a_slow_ai_call_do_not_break_the_stream(
 
     def slow_parse(**kwargs: Any) -> SimpleNamespace:
         time.sleep(0.4)
-        return SimpleNamespace(output_parsed=fake_openai.result)
+        return fake_openai.parse(**kwargs)
 
     monkeypatch.setattr(fake_openai.responses, "parse", slow_parse)
 
@@ -516,6 +738,62 @@ def test_keepalive_pings_during_a_slow_ai_call_do_not_break_the_stream(
     events = read_events(response)
     assert [event["stage"] for event in events] == ["reading", "extracting", "done"]
     assert events[-1]["result"]["structured_data"] == fake_openai.result.model_dump()
+
+
+# --- AI usage: every call OpenAI answered is stored (ai_usage) ---
+
+
+def ai_calls_after(db_session: Session, last_id: int) -> list[tuple[str, int | None]]:
+    """(call_type, resume_intake_id) of each AI call stored after id `last_id`, oldest first."""
+    query = select(AiCall.call_type, AiCall.resume_intake_id).where(AiCall.id > last_id)
+    return [tuple(row) for row in db_session.execute(query.order_by(AiCall.id))]
+
+
+def test_a_stored_intake_has_its_ai_calls_linked_to_it(
+    client: TestClient, db_session: Session, make_pdf: Callable[..., bytes]
+) -> None:
+    last_id = db_session.scalar(select(func.max(AiCall.id))) or 0
+
+    events = post_pdf(client, make_pdf([""]))
+
+    intake_id = events[-1]["result"]["id"]
+    assert ai_calls_after(db_session, last_id) == [("ocr", intake_id), ("structuring", intake_id)]
+    stored = db_session.scalars(select(AiCall).where(AiCall.id > last_id)).first()
+    assert stored.model == OPENAI_MODEL
+    assert (stored.input_tokens, stored.cached_tokens, stored.cache_write_tokens) == (1000, 200, 0)
+    assert stored.output_tokens == 300
+    assert stored.cost_usd == FAKE_CALL_COST
+
+
+def test_a_cut_short_ocr_answer_is_a_502_event_and_its_billed_call_is_stored_unlinked(
+    client: TestClient,
+    db_session: Session,
+    make_pdf: Callable[..., bytes],
+    fake_openai: FakeOpenAI,
+) -> None:
+    fake_openai.ocr_status = "incomplete"
+    last_id = db_session.scalar(select(func.max(AiCall.id))) or 0
+    rows_before = count_rows(db_session)
+
+    events = post_pdf(client, make_pdf([""]))
+
+    assert [event["stage"] for event in events] == ["reading", "error"]
+    assert events[-1]["status"] == 502
+    assert ai_calls_after(db_session, last_id) == [("ocr", None)]
+    assert count_rows(db_session) == rows_before
+
+
+def test_a_failed_upload_without_an_ai_answer_stores_no_ai_call(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI
+) -> None:
+    """A timeout has no usage to record (a known gap: OpenAI's billing is the source of truth)."""
+    fake_openai.error = OCR_TIMEOUT
+    last_id = db_session.scalar(select(func.max(AiCall.id))) or 0
+
+    events = read_events(client.post(URL, data=ANSWERS, files={"file": TXT_CV}))
+
+    assert events[-1]["status"] == 502
+    assert ai_calls_after(db_session, last_id) == []
 
 
 # --- GET: the past-interviews list and one stored intake ---
@@ -573,12 +851,31 @@ def test_list_is_newest_first_and_pages_by_id(client: TestClient, db_session: Se
         "candidate_email": "bo@example.com",
         "rating": 3,
         "work_mode": "onsite",
+        "ai_cost_usd": None,
     }
 
     next_page = client.get(URL, params={"limit": 2, "before_id": ann.id}).json()
     assert next_page["items"][0]["id"] == old.id
     assert next_page["items"][0]["candidate_name"] is None
     assert next_page["items"][0]["candidate_email"] is None
+
+
+def test_list_shows_each_intakes_summed_ai_cost(client: TestClient, db_session: Session) -> None:
+    """Null for an intake without recorded calls, like those from before usage was recorded."""
+    ann = add_intake(db_session, "Ann Lee")
+    bo = add_intake(db_session, "Bo Chan")
+    ai_calls: list[AiCall] = []
+    record_ai_call(ai_calls, OPENAI_MODEL, "ocr", FAKE_USAGE)
+    record_ai_call(ai_calls, OPENAI_MODEL, "structuring", FAKE_USAGE)
+    add_ai_calls(db_session, ai_calls, ann.id)
+    db_session.flush()
+
+    items = client.get(URL, params={"limit": 2}).json()["items"]
+
+    assert [(item["id"], item["ai_cost_usd"]) for item in items] == [
+        (bo.id, None),
+        (ann.id, float(2 * FAKE_CALL_COST)),
+    ]
 
 
 def test_list_before_the_first_id_is_empty(client: TestClient, db_session: Session) -> None:

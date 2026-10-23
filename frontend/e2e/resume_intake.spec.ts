@@ -137,12 +137,8 @@ async function fillAnswers(page: Page, skip?: string) {
   if (skip !== 'Rating') await page.getByRole('radio', { name: '3', exact: true }).check()
 }
 
-// Synthetic files only. The PDF has one page and no text layer, like a scan.
+// Synthetic files only.
 const PNG_CV = Buffer.concat([Buffer.from('\x89PNG\r\n\x1a\n'), Buffer.alloc(64)])
-const BLANK_PDF = Buffer.from(
-  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R/Size 4>>\n%%EOF\n',
-)
 // The backend's answer for each file is canned (backend/tests/features/resume_intake/test_router.py checks the real
 // one), so no upload reaches the backend.
 const REJECTED_CVS = [
@@ -150,11 +146,6 @@ const REJECTED_CVS = [
     file: { name: 'photo.png', mimeType: 'image/png', buffer: PNG_CV },
     status: 415,
     message: 'Unsupported file type. Upload the CV as a PDF, DOCX, DOC or TXT file.',
-  },
-  {
-    file: { name: 'scan.pdf', mimeType: 'application/pdf', buffer: BLANK_PDF },
-    status: 422,
-    message: "The PDF has no text layer — probably a scan; scanned resumes aren't supported yet.",
   },
 ]
 
@@ -273,6 +264,7 @@ test('past interviews lists stored intakes and opens one at its own address', as
                 candidate_email: 'jane.doe@example.com',
                 rating: STORED_INTAKE.rating,
                 work_mode: STORED_INTAKE.work_mode,
+                ai_cost_usd: 0.0044,
               },
             ],
             has_more: false,
