@@ -1,4 +1,8 @@
-"""Tests for app.core.config.Settings: which settings are required to start the app."""
+"""Tests for app.core.config.Settings: which settings are required to start the app, and the
+defaults of the optional ones.
+"""
+
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -28,3 +32,21 @@ def test_openai_api_key_is_read_from_the_environment_and_kept_secret(
 
     assert settings.openai_api_key.get_secret_value() == "sk-test-not-real"
     assert "sk-test-not-real" not in repr(settings)
+
+
+def test_ai_spend_cap_defaults_to_5_usd(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AI_SPEND_CAP_USD", raising=False)
+
+    settings = Settings(_env_file=None, database_url=DATABASE_URL, openai_api_key="sk-test")
+
+    assert settings.ai_spend_cap_usd == Decimal("5")
+
+
+def test_ai_spend_cap_is_read_from_the_environment_exactly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AI_SPEND_CAP_USD", "0.10")
+
+    settings = Settings(_env_file=None, database_url=DATABASE_URL, openai_api_key="sk-test")
+
+    assert settings.ai_spend_cap_usd == Decimal("0.10")

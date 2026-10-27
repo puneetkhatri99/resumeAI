@@ -13,6 +13,47 @@ Entry format:
 
 ---
 
+### 2026-10-27: Render deploy: one Docker service
+- **Context:** the user asked whether the frontend and backend can deploy together on Render, then said "add file" (Render is already connected to their GitHub).
+- **Learning:**
+  - **Built:** a root `Dockerfile` (`node:24-slim` builds the frontend; `python:3.13-slim` with `playwright install --with-deps --only-shell chromium`), a `.dockerignore` that keeps `.env` out, and a `StaticFiles` mount at `/` in `app/main.py` when `backend/static` exists. `backend/static/` is git-ignored.
+  - **Checked locally:** the built frontend copied into `backend/static` gave `/` 200 HTML, `/api/health` 200 and `/nope` 404; ruff was clean, and pytest passed 295 tests against Aiven in about 2 min 44 s. The Docker image itself hasn't been built here (no Docker on this machine); Render's first build is the real test.
+  - **Not done yet:** trusting Render's forwarded header (until then every visitor shares one rate-limit bucket) and auth.
+- **Applies to:** the deploy, `app/main.py`, and any new runtime file outside `backend/` (the image only copies `backend/` and the built frontend).
+
+### 2026-10-27: The database moved to Aiven Postgres (for the Render deploy)
+- **Context:** the user wants to deploy and gave an Aiven for PostgreSQL service (Postgres 18.6, host `pg-2abcf3ce-resume-structuring.f.aivencloud.com:26102`, database `defaultdb`, user `avnadmin`).
+- **Learning:**
+  - **The user's choice:** `backend/.env` points at Aiven; the local Postgres line is kept but commented out. So `fastapi dev`, `pytest` and `alembic` all use the cloud database now.
+  - **The URL format:** Aiven's `postgres://...` becomes `postgresql+psycopg://...?sslmode=require` (SQLAlchemy + psycopg 3). Aiven's sample uses psycopg2, but no new package is needed.
+  - The connection works through `app.core.database.engine` (`select version()` returned 18.6).
+  - **Permissions:** the auto-mode classifier refused to let the agent run `alembic upgrade head` against Aiven ("Production Deploy") until the user said "run it on live". Then all 4 migrations ran, and Aiven is at head `7e1f0a3f150f`.
+- **Applies to:** every DB connection, tests (their writes now land in the cloud DB unless rolled back), and the Render setup (`DATABASE_URL` env var).
+
+### 2026-10-27: Rate limiting and the AI spending cap (before the Render deploy)
+- **Context:** the user wants to deploy on Render. The first step guards the public API against abuse and runaway OpenAI cost. Plan approved 2026-10-27; built as `docs/features/rate_limit_and_spend_cap.md`.
+- **Learning (the user's decisions):**
+  - **AI spending cap: all time, not monthly.** Env `AI_SPEND_CAP_USD`, default **$5** (`settings.ai_spend_cap_usd`). Once the summed `ai_calls.cost_usd` reaches it, `POST /api/resume_intake` gets **402** "AI spending limit reached. Uploads are paused." Unpriced calls count as $0. History, PDFs and the usage panel keep working.
+  - **Rate limiting: every `/api` endpoint, per IP, in memory, no new package.** 120 requests/min overall, plus 30 uploads/hour on top. 429 `{"detail": "Too many requests. Try again in N seconds."}` with `Retry-After`.
+  - **Accepted limits:** the cap is checked once per upload, so a running upload can overshoot by its own cost; the counts reset on restart and are per instance.
+  - **Next steps (not built):** auth before going public; the Render setup; trusting only Render's forwarded header for the client IP (uvicorn's `--forwarded-allow-ips='*'` takes a spoofable leftmost `X-Forwarded-For`).
+- **Learning (found while building):**
+  - **The cap check is a dependency (`dependencies=[Depends(require_ai_budget)]`),** so its 402/503 is a plain HTTP error before the event stream. FastAPI runs dependencies before it reports form validation errors, so once the cap is reached an invalid upload also gets 402.
+  - **Only allowed requests are counted,** so a refused upload doesn't use up the overall limit and a client that waits for `Retry-After` gets in.
+  - **Every test now shares one in-memory limiter:** the autouse `reset_rate_limits` fixture clears it before each test; without it the full run (hundreds of `testclient` requests) would hit 120/min. The limiter's tests patch `app.core.rate_limit.monotonic` with a fake clock.
+  - **A test session stub must answer the cap check:** `FailingCommitSession` got a `scalar` returning $0, `FailingQuerySession` got `scalar = execute`.
+  - **Trap seen while ruff still targeted py314:** `ruff format` rewrote `except (A, B):` as `except A, B:` (PEP 758) in `resume_intake/service.py`, a SyntaxError on the 3.13 venv that stopped the app, pytest and the auto-reloading dev server from importing. The parentheses were restored by hand; with `target-version = "py313"` (entry below) ruff leaves them alone. If ruff's target ever moves ahead of the venv's Python again, `ruff format` can break the code.
+  - **Manual check:** a throwaway backend on :8001 with `AI_SPEND_CAP_USD=0` and the OpenAI base URL pointed at itself gave the 402 with no OpenAI request; the 121st `/api` request within a minute gave 429 with `Retry-After`; `/docs` stayed 200. Dev tables unchanged by pytest (`resume_intakes` 2 rows, `ai_calls` 2 rows, $0.0040224).
+- **Applies to:** `ai_usage`, `resume_intake`, `app/core/rate_limit.py`, every test that makes requests, and the Render deploy.
+
+### 2026-10-27: Python 3.13 is the official version, not 3.14
+- **Context:** the docs said Python 3.14, but `backend/.venv` was built with 3.13.17, and 3.14 isn't installed here (only 3.13 and 3.15). The user chose to make 3.13 official.
+- **Learning:**
+  - CLAUDE.md, README.md, rules.md and ruff's `target-version` (`py313`) now say 3.13.
+  - Always create the venv with `py -V:3.13 -m venv .venv`. A bare `python -m venv` uses the default Python, which is probably 3.15 on this machine.
+  - The `py` command is the Python install manager 26.4 (`py install`, `py list`, `py uninstall`). The README has the install, check and rebuild steps.
+- **Applies to:** setting up or rebuilding `backend/.venv`, and any check that depends on the Python version.
+
 ### 2026-10-23: Live benchmark of the 5 models: gpt-4.1-mini fails prompt injection
 - **Context:** the user asked to check every model's performance, including security, and pick the best for this use case. They approved about 30 live OpenAI requests. All 30 were used: 6 synthetic cases × 5 models, the production prompts and schema, costing about $0.026 in total. The script and fixtures are in the session scratchpad (`bench\`), not the repo.
 - **Learning:**

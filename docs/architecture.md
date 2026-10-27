@@ -12,13 +12,16 @@ The detailed design for each feature lives in `docs/features/<feature>.md`, writ
 - `resume_intake` and `resume_structuring` (AI extraction) are designed and built.
 - `resume_generation` (the branded PDF) is designed and built.
 - `ai_usage` (the AI usage panel) is designed and built.
+- Rate limiting and the AI spending cap (`docs/features/rate_limit_and_spend_cap.md`) are designed and built.
 
 ## Layout
 ```
 backend/
   app/
-    main.py                 # FastAPI app; mounts every feature router under /api
-    core/                   # shared: config.py (settings from .env), database.py (engine, Base, get_db)
+    main.py                 # FastAPI app; mounts every feature router under /api, and the built
+                            #   frontend at / when backend/static exists (the Docker image)
+    core/                   # shared: config.py (settings from .env), database.py (engine, Base, get_db),
+                            #   rate_limit.py (per-IP rate-limit middleware for /api)
     features/<feature>/     # one vertical slice per feature (see below)
   alembic/                  # migrations; env.py reuses app.core.database.engine
   tests/features/<feature>/ # pytest, mirrors app/features
@@ -33,11 +36,12 @@ docs/                       # this file + docs/features/<feature>.md designs
 ```
 
 ## Request flow
-1. The browser loads the app from the Vite dev server (`:5173`).
-2. Vite proxies `/api/*` to FastAPI (`:8000`).
-3. The feature's `router.py` receives the request.
-4. The feature's `service.py` does the work (optional; added once a slice has logic).
-5. A SQLAlchemy session from `get_db` talks to Postgres.
+1. The browser loads the app from the Vite dev server (`:5173`). Deployed, FastAPI serves the built app itself from `backend/static`.
+2. Vite proxies `/api/*` to FastAPI (`:8000`). Deployed, `/api` is on the same origin.
+3. Middleware in `app/main.py`: the per-IP rate limit (`core/rate_limit.py`, 429 when over), then the 10 MB body limit (413).
+4. The feature's `router.py` receives the request.
+5. The feature's `service.py` does the work (optional; added once a slice has logic).
+6. A SQLAlchemy session from `get_db` talks to Postgres.
 
 ## Feature slice conventions
 **Backend: `backend/app/features/<feature>/`.** Create a file only when the slice needs it.
@@ -124,4 +128,8 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-10-22 | One Chromium launch per PDF | Simplicity; revisit if volume grows |
 | 2026-10-23 | OCR for scanned PDFs through OpenAI vision: the PDF goes as a Responses API `input_file` (`transcribe_pdf` in `resume_structuring`), with the same client, model and `store=False`. It runs when a PDF has no text layer, plus one retry when the AI finds no name or email in a text-layer PDF. (Supersedes "No OCR yet".) | User choice. No install (Application Control blocks `.exe` launchers here), good with two-column CVs, and no new vendor sees CV data. A scanned upload costs 2 OpenAI requests. |
 | 2026-10-23 | AI usage and cost in the `ai_usage` slice: one `ai_calls` row per answered OpenAI call, priced when recorded from a hand-edited `PRICES` table (5 models, OpenAI's prices on 2026-10-23), linked to its intake (`ON DELETE SET NULL`; unlinked for a failed upload). Calls are collected in a required `ai_calls` list parameter and stored in the intake's own commit. The panel's days and months follow the browser's time zone (`set_config('TimeZone', tz, true)` per request). | User choice (`docs/features/ai_usage.md`). The cost must stay right after the switch away from gpt-4.1-mini. A collector keeps the usage of answers that are then rejected (OpenAI bills them); a ContextVar doesn't survive the SSE generator's thread-pool steps. Calls with no answer (timeouts) can't be recorded: OpenAI's billing is the source of truth. |
-| Open | Production hosting/deployment, auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |
+| 2026-10-27 | All-time AI spending cap: `AI_SPEND_CAP_USD` (default $5, `settings.ai_spend_cap_usd`). Once the summed `ai_calls.cost_usd` reaches it, `POST /api/resume_intake` gets a plain 402 from the `require_ai_budget` dependency, before the event stream and any AI call (503 if the database fails during the check). | User choice (`docs/features/rate_limit_and_spend_cap.md`), before the public deploy. All time, not monthly. The check runs once per upload, so a running upload can overshoot by its own cost (accepted). |
+| 2026-10-27 | Per-IP rate limit on every `/api` request: 120 per minute, plus 30 uploads per hour on top. In-memory sliding window (`core/rate_limit.py`, Starlette `BaseHTTPMiddleware`, a lock-guarded dict of deques), 429 with `Retry-After`. | User choice: no new package. Counts reset on restart and are per instance (enough for one Render instance). The client IP is `request.client.host`; trusting Render's forwarded header is set up in the deploy step. |
+| 2026-10-27 | Database on Aiven for PostgreSQL (`sslmode=require`); `backend/.env` points at it, and the local Postgres line is kept commented out. (Supersedes "Local Postgres install" for the database.) | User choice, for the deploy. |
+| 2026-10-27 | Deploy on Render as **one Docker web service** (root `Dockerfile`): stage 1 builds the frontend, stage 2 is `python:3.13-slim` with `playwright install --with-deps --only-shell chromium`. FastAPI serves the built frontend from `backend/static` at `/` (mounted only when that folder exists) and the API at `/api`. The container runs `alembic upgrade head` on every start. | One origin, so no CORS and no API URL to configure; one service. Docker because Chromium needs system libraries that Render's native Python runtime can't install. |
+| Open | Render forwarded-header trust for the client IP (until then every visitor shares one rate-limit bucket), auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |

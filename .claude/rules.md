@@ -17,7 +17,7 @@ If something can be done simply, do it simply. Build the smallest thing that ful
 - **Setup docs:** setup and commands stay current in `README.md` and `CLAUDE.md`.
 
 ## 4. Stack
-- **Backend:** FastAPI (Python 3.14). Dependencies go through pip + venv with exact pins in `backend/requirements.txt` / `requirements-dev.txt`.
+- **Backend:** FastAPI (Python 3.13). Dependencies go through pip + venv with exact pins in `backend/requirements.txt` / `requirements-dev.txt`.
 - **Database:** PostgreSQL, accessed through SQLAlchemy 2. Schema changes go through Alembic migrations.
 - **Frontend:** React + TypeScript (Vite).
 

@@ -18,6 +18,7 @@
 |---|---|
 | 422 | `tz` is missing, empty or over 64 characters; or Postgres doesn't know the zone (`{"detail": "Unknown time zone."}`). Postgres also accepts POSIX-style zones and never answers 500 for one: `UTC+5` (5 hours *west* of UTC, the POSIX way), `+25:00` and `1` all give 200. |
 | 503 | The database is unavailable. |
+| 429 | Over the per-IP rate limit (every `/api` endpoint, see `app/core/rate_limit.py`): `{"detail": "Too many requests. Try again in N seconds."}` with `Retry-After`. |
 
 **No access control,** like the rest of the API: fine on localhost; auth is needed before hosting.
 
@@ -28,6 +29,7 @@ Calls are collected in a list while an upload runs, then stored with the intake 
 - `save_ai_calls_without_intake(db, ai_calls)`: for a failed upload; rolls back, adds the calls unlinked and commits. A database error is logged (type only) and swallowed.
 - `intake_cost_column(intake_id)`: a scalar subquery summing an intake's call costs (`resume_intake`'s past-interviews list uses it for `ai_cost_usd`).
 - `call_cost(model, input, cached, cache_write, output) -> Decimal | None`: `((input − cached − write)·input rate + cached·cached rate + write·cache-write rate + output·output rate) / 1M`; None for a model not in `PRICES`.
+- `ai_spend_cap_reached(db) -> bool`: the **AI spending cap** (2026-10-27). True once the all-time `COALESCE(SUM(cost_usd), 0)` over every `ai_calls` row (the panel's `all_time` cost) is at or above `settings.ai_spend_cap_usd` (env `AI_SPEND_CAP_USD`, default $5). Unpriced calls count as $0. `resume_intake` asks it before each upload and answers **402** "AI spending limit reached. Uploads are paused." when it is reached. Raises `SQLAlchemyError` when the database is down. Design: [docs/features/rate_limit_and_spend_cap.md](../../../../docs/features/rate_limit_and_spend_cap.md).
 - `usage_report(db, tz)`: sets the zone for the transaction (`set_config('TimeZone', tz, true)`) and runs the report queries. An unknown zone is a Postgres `DataError` (SQLSTATE 22023), raised as `UnknownTimeZoneError`.
 - `AiCall` is re-exported here, so other features type their lists without importing `models.py`.
 
@@ -66,6 +68,6 @@ Table `ai_calls` (migration `alembic/versions/7e1f0a3f150f_create_ai_calls_table
 
 ## Tests
 `backend/tests/features/ai_usage/`
-- `test_service.py` (no database): the exact gpt-6-luna cost with four rates; a gpt-4.1-mini cache write costs the input rate; an unknown model costs None; `OPENAI_MODEL` is in `PRICES` (fails the day the model is switched to an unpriced one); `record_ai_call` stores tokens and cost, skips a missing `usage`, and reads a missing detail count, or a null `input_tokens_details`, as 0.
+- `test_service.py` (no database): the exact gpt-6-luna cost with four rates; a gpt-4.1-mini cache write costs the input rate; an unknown model costs None; `OPENAI_MODEL` is in `PRICES` (fails the day the model is switched to an unpriced one); `record_ai_call` stores tokens and cost, skips a missing `usage`, and reads a missing detail count, or a null `input_tokens_details`, as 0. The spending cap tests use Postgres through `db_session`, with the cap set relative to the total already in the dev database: below the cap it isn't reached, at and above it is, and an unpriced call counts as $0.
 - `test_router.py` (Postgres, through `db_session`; the `usage_db` fixture deletes every AI call inside the rolled-back transaction first): the empty report with $0 costs; this month vs a call 40 days ago, and the month boundary in Asia/Tokyo; the 30-day window and days newest first; an unpriced model costs $0 with `unpriced_calls` 1 while its recent call keeps a null cost; a mixed group and an all-unpriced day; grouping by call type; Asia/Tokyo vs UTC days; recent calls with the candidate's name or null, capped at 50, the last stored first on a tie; deleting an intake keeps its calls unlinked; 422 for an unknown, missing or oversized zone; 503 with the database down. The QA pass's extra tests were merged in here (rule 5 naming).
-- The recording itself is tested in `resume_structuring` and `resume_intake` (see their READMEs).
+- The recording itself is tested in `resume_structuring` and `resume_intake` (see their READMEs), and so is the upload's 402.

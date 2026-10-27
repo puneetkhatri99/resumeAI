@@ -6,5 +6,7 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+# The built frontend, copied in by the Dockerfile; never committed.
+backend/static/
 
 # Frontend has its own frontend/.gitignore (node_modules, dist, Playwright output)

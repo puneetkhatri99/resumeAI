@@ -1,10 +1,22 @@
-"""Tests for ai_usage pricing and recording (no database needed)."""
+"""Tests for ai_usage pricing and recording (no database needed), and the spending cap check
+(Postgres, through db_session).
+"""
 
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
 from app.features.ai_usage.models import AiCall
-from app.features.ai_usage.service import PRICES, call_cost, record_ai_call
+from app.features.ai_usage.service import (
+    PRICES,
+    ai_spend_cap_reached,
+    call_cost,
+    record_ai_call,
+)
 from app.features.resume_structuring.service import OPENAI_MODEL
 from tests.conftest import FAKE_CALL_COST, FAKE_USAGE
 
@@ -80,3 +92,59 @@ def test_a_usage_without_input_details_counts_no_cached_tokens() -> None:
     assert (call.input_tokens, call.cached_tokens, call.cache_write_tokens) == (1000, 0, 0)
     # 1,000 x 0.40 + 200 x 1.60 = 720 per 1M tokens
     assert call.cost_usd == Decimal("0.00072")
+
+
+# --- The all-time spending cap (Postgres; the dev database already holds some real calls) ---
+
+
+def add_call(db_session: Session, model: str, cost_usd: Decimal | None) -> None:
+    """Store one AI call with the given cost, inside the rolled-back test transaction."""
+    db_session.add(
+        AiCall(
+            model=model,
+            call_type="structuring",
+            input_tokens=1000,
+            cached_tokens=0,
+            cache_write_tokens=0,
+            output_tokens=300,
+            cost_usd=cost_usd,
+        )
+    )
+    db_session.flush()
+
+
+@pytest.fixture
+def total_before(db_session: Session) -> Decimal:
+    """The all-time cost already stored, so each test can set the cap relative to it."""
+    return db_session.scalar(select(func.coalesce(func.sum(AiCall.cost_usd), 0)))
+
+
+def test_the_cap_is_not_reached_below_it(
+    db_session: Session, total_before: Decimal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before + Decimal("0.01"))
+    add_call(db_session, OPENAI_MODEL, Decimal("0.0099"))
+
+    assert ai_spend_cap_reached(db_session) is False
+
+
+def test_the_cap_is_reached_at_and_above_it(
+    db_session: Session, total_before: Decimal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before + Decimal("0.01"))
+    add_call(db_session, OPENAI_MODEL, Decimal("0.01"))
+
+    assert ai_spend_cap_reached(db_session) is True
+
+    add_call(db_session, OPENAI_MODEL, Decimal("0.01"))
+
+    assert ai_spend_cap_reached(db_session) is True
+
+
+def test_an_unpriced_call_counts_as_zero_towards_the_cap(
+    db_session: Session, total_before: Decimal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before + Decimal("0.01"))
+    add_call(db_session, "gpt-unknown", None)
+
+    assert ai_spend_cap_reached(db_session) is False

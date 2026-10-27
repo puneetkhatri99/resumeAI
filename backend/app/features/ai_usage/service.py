@@ -2,8 +2,9 @@
 
 Other features record calls through this module (rule 7): they collect AiCall objects in a list
 with record_ai_call while they work, then store them with add_ai_calls (with the intake) or
-save_ai_calls_without_intake (a failed upload). This module never imports resume_intake, which
-imports it. No CV text or personal data is stored or logged here.
+save_ai_calls_without_intake (a failed upload). resume_intake asks ai_spend_cap_reached before
+each upload. This module never imports resume_intake, which imports it. No CV text or personal
+data is stored or logged here.
 """
 
 import logging
@@ -15,6 +16,7 @@ from sqlalchemy import ColumnElement, Date, ScalarSelect, cast, func, select, te
 from sqlalchemy.exc import DataError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.schemas import (
     AiUsageReport,
@@ -141,6 +143,17 @@ def intake_cost_column(intake_id: ColumnElement[int]) -> ScalarSelect[Decimal | 
         .where(AiCall.resume_intake_id == intake_id)
         .scalar_subquery()
     )
+
+
+def ai_spend_cap_reached(db: Session) -> bool:
+    """True once the all-time cost of every recorded AI call has reached AI_SPEND_CAP_USD.
+
+    The same sum as the panel's all_time total: unpriced calls add $0, which is safe because
+    test_the_model_in_use_has_a_price keeps the model in use priced. Raises SQLAlchemyError
+    when the database is unavailable.
+    """
+    total_cost = db.scalar(select(func.coalesce(func.sum(AiCall.cost_usd), 0)))
+    return total_cost >= settings.ai_spend_cap_usd
 
 
 def usage_report(db: Session, tz: str) -> AiUsageReport:

@@ -185,7 +185,7 @@ def extract_text(data: bytes, ai_calls: list[AiCall]) -> tuple[FileType, str, bo
 
     try:
         text = reader(data)
-    except UnsupportedFileTypeError, ResumeExtractionError:
+    except (UnsupportedFileTypeError, ResumeExtractionError):
         raise
     except Exception as exc:
         logger.warning("Could not read a %s CV: %s", file_type, type(exc).__name__)

@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import Callable, Iterator
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,10 +17,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.service import add_ai_calls, record_ai_call
 from app.features.resume_intake.models import ResumeIntake
+from app.features.resume_intake.router import AI_SPEND_CAP_MESSAGE, DATABASE_DOWN_MESSAGE
 from app.features.resume_intake.schemas import ResumeIntakeResponse
 from app.features.resume_intake.service import EMPTY_MESSAGE, LINKS_HEADING, TOO_MANY_PAGES_MESSAGE
 from app.features.resume_structuring.schemas import ResumeData
@@ -54,7 +57,13 @@ TXT_CV = ("cv.txt", b"Jane Doe\r\nSoftware engineer", "text/plain")
 
 
 class FailingCommitSession:
-    """Stand-in session whose commit fails the way it does when Postgres is down."""
+    """Stand-in session whose commit fails the way it does when Postgres is down.
+
+    Its one read, the spending-cap check's sum, answers $0, so the upload gets to the commit.
+    """
+
+    def scalar(self, statement: object) -> Decimal:
+        return Decimal(0)
 
     def add(self, instance: object) -> None:
         pass
@@ -806,6 +815,7 @@ class FailingQuerySession:
         raise OperationalError("SELECT", {}, ConnectionRefusedError("connection refused"))
 
     get = execute
+    scalar = execute
 
 
 def add_intake(db_session: Session, name: str | None) -> ResumeIntake:
@@ -920,3 +930,79 @@ def test_reads_with_the_database_down_are_503(client: TestClient, path: str) -> 
 
     assert response.status_code == 503
     assert response.json() == {"detail": "The database is unavailable. Try again later."}
+
+
+# --- The AI spending cap (AI_SPEND_CAP_USD): a plain 402 before the stream starts ---
+
+
+def all_time_ai_cost(db_session: Session) -> Decimal:
+    """The summed cost of every stored AI call. The dev database already holds some real ones."""
+    return db_session.scalar(select(func.coalesce(func.sum(AiCall.cost_usd), 0)))
+
+
+def test_an_upload_below_the_spending_cap_works(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", all_time_ai_cost(db_session) + FAKE_CALL_COST)
+
+    events = read_events(client.post(URL, data=ANSWERS, files={"file": TXT_CV}))
+
+    assert events[-1]["stage"] == "done"
+    assert len(fake_openai.calls) == 1
+
+
+def test_an_upload_at_the_spending_cap_is_402_before_any_ai_call(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One more call brings the total to exactly the cap: the cap counts as reached."""
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", all_time_ai_cost(db_session) + FAKE_CALL_COST)
+    ai_calls: list[AiCall] = []
+    record_ai_call(ai_calls, OPENAI_MODEL, "structuring", FAKE_USAGE)
+    add_ai_calls(db_session, ai_calls, None)
+    db_session.flush()
+    last_id = db_session.scalar(select(func.max(AiCall.id)))
+    rows_before = count_rows(db_session)
+
+    response = client.post(URL, data=ANSWERS, files={"file": TXT_CV})
+
+    assert response.status_code == 402
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"detail": AI_SPEND_CAP_MESSAGE}
+    assert fake_openai.calls == []
+    assert fake_openai.ocr_calls == []
+    assert count_rows(db_session) == rows_before
+    assert ai_calls_after(db_session, last_id) == []
+
+
+def test_the_spending_cap_is_read_from_settings(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A $0 cap is always reached: the total is never below $0."""
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", Decimal(0))
+
+    response = client.post(URL, data=ANSWERS, files={"file": TXT_CV})
+
+    assert response.status_code == 402
+    assert response.json() == {"detail": AI_SPEND_CAP_MESSAGE}
+    assert fake_openai.calls == []
+
+
+def test_the_database_down_during_the_spending_cap_check_is_503(
+    client: TestClient, fake_openai: FakeOpenAI
+) -> None:
+    app.dependency_overrides[get_db] = FailingQuerySession
+
+    response = client.post(URL, data=ANSWERS, files={"file": TXT_CV})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": DATABASE_DOWN_MESSAGE}
+    assert fake_openai.calls == []

@@ -1,4 +1,6 @@
-"""Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI."""
+"""Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI;
+the autouse reset_rate_limits fixture starts every test with no requests counted.
+"""
 
 from collections.abc import Iterator
 from decimal import Decimal
@@ -12,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.database import engine, get_db
+from app.core.rate_limit import rate_limiter
 from app.features.resume_structuring import service as resume_structuring_service
 from app.features.resume_structuring.schemas import (
     Certificate,
@@ -120,6 +123,12 @@ def fake_openai(monkeypatch: pytest.MonkeyPatch) -> FakeOpenAI:
     fake = FakeOpenAI()
     monkeypatch.setattr(resume_structuring_service, "client", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits() -> None:
+    """Clear the rate limiter's counts, so the whole run's requests never add up to a 429."""
+    rate_limiter.reset()
 
 
 @pytest.fixture

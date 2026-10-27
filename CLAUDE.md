@@ -6,7 +6,7 @@ ResumeAI takes a user's existing resume, uses AI to turn it into structured data
 @.claude/learning.md
 
 ## Stack
-- **Backend:** `backend/`. FastAPI, SQLAlchemy 2, Alembic, Postgres (psycopg 3), Python 3.14, pip + venv.
+- **Backend:** `backend/`. FastAPI, SQLAlchemy 2, Alembic, Postgres (psycopg 3), Python 3.13, pip + venv.
 - **Frontend:** `frontend/`. React 19, TypeScript, Vite, Vitest, Playwright, oxlint.
 - **Structure, conventions and decisions:** [docs/architecture.md](docs/architecture.md).
 
