@@ -17,7 +17,7 @@ ResumeAI takes a user's existing resume, uses AI to turn it into structured data
 - Run: `fastapi dev app/main.py` → http://localhost:8000/docs
 - Lint / format: `ruff check .` / `ruff format .`
 - Test: `pytest`. The DB tests need Postgres and `backend/.env`. pytest never calls OpenAI (autouse `fake_openai` fixture). Exactly one test renders a real PDF with headless Chromium (user-approved); every other test fakes `render_pdf`.
-- `backend/.env` needs `DATABASE_URL` and `OPENAI_API_KEY`; both are required.
+- `backend/.env` needs `DATABASE_URL` and `OPENAI_API_KEY`; both are required. Optional: `AI_SPEND_CAP_USD` (default 5) and `PUBLIC_API_KEY` (the public API's `X-API-Key`; unset = every `/api/public` route is 401).
 - Migrations: `alembic revision --autogenerate -m "<message>"`, then `alembic upgrade head`
 
 **Frontend** (run from `frontend/`):

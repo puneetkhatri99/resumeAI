@@ -1,0 +1,183 @@
+"""Public API for outside systems (e.g. Loxo), behind the X-API-Key header:
+POST a resume under the caller's own candidate and resume ids and get the AI-extracted details
+back as JSON; GET the branded MinistryHub PDF for a stored pair.
+"""
+
+import logging
+import secrets
+from datetime import date
+from typing import Annotated
+from urllib.parse import quote
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Path,
+    Response,
+    Security,
+    UploadFile,
+    status,
+)
+from fastapi.security import APIKeyHeader
+from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.database import get_db
+from app.features.ai_usage.service import (
+    AiCall,
+    ai_spend_cap_reached,
+    save_ai_calls_without_intake,
+)
+from app.features.public_api.schemas import PublicId, PublicResumeResponse
+from app.features.public_api.service import get_public_resume, save_public_resume
+from app.features.resume_generation.service import PdfRenderError, build_resume_html, render_pdf
+from app.features.resume_intake.service import (
+    ResumeExtractionError,
+    UnsupportedFileTypeError,
+    extract_text,
+    structure_resume,
+)
+from app.features.resume_structuring.service import (
+    AiExtractionError,
+    ResumeData,
+    ResumeStructuringError,
+)
+
+logger = logging.getLogger(__name__)
+
+DATABASE_DOWN_MESSAGE = "The database is unavailable. Try again later."
+AI_SPEND_CAP_MESSAGE = "AI spending limit reached. Uploads are paused."
+INVALID_KEY_MESSAGE = "Invalid or missing API key."
+# The one template that exists today: the MinistryHub branded resume.
+MINISTRYHUB_TEMPLATE_ID = 1
+
+# auto_error=False: a missing header is our own 401, not FastAPI's 403. Security() also shows
+# the key in /docs' "Authorize" dialog.
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(api_key: Annotated[str | None, Security(api_key_header)]) -> None:
+    """Refuse the request with 401 unless X-API-Key matches PUBLIC_API_KEY.
+
+    Also 401 when PUBLIC_API_KEY isn't set (or is empty), so the public API is closed until
+    it is configured. Compared in constant time.
+    """
+    expected = settings.public_api_key.get_secret_value() if settings.public_api_key else ""
+    if not expected or not api_key or not secrets.compare_digest(api_key, expected):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            INVALID_KEY_MESSAGE,
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+
+def require_ai_budget(db: Annotated[Session, Depends(get_db)]) -> None:
+    """Refuse with 402 once all-time AI spending has reached AI_SPEND_CAP_USD; 503 if the
+    database fails during the check. Same rule as resume_intake's upload, and the public
+    uploads' calls count toward the same total.
+    """
+    try:
+        cap_reached = ai_spend_cap_reached(db)
+    except SQLAlchemyError:
+        logger.exception("Could not check the AI spending cap: database error")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None
+    if cap_reached:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, AI_SPEND_CAP_MESSAGE)
+
+
+router = APIRouter(prefix="/public", tags=["public_api"], dependencies=[Depends(require_api_key)])
+
+
+@router.post(
+    "/resumes", response_model=PublicResumeResponse, dependencies=[Depends(require_ai_budget)]
+)
+def create_public_resume(
+    file: UploadFile,
+    candidate_id: Annotated[PublicId, Form()],
+    resume_id: Annotated[PublicId, Form()],
+    db: Annotated[Session, Depends(get_db)],
+) -> PublicResumeResponse:
+    """Read the CV, have AI extract its details, store them under the pair and return them (200).
+
+    A repeat pair replaces the stored details. 401 bad key; 402 spending cap; 415 not a PDF,
+    DOCX, DOC or TXT; 422 invalid form or unusable CV text (no name or email, too long, over
+    4 pages); 502 an AI call failed; 503 database unavailable. On any error nothing is stored,
+    but the AI calls OpenAI answered (and billed) are stored unlinked.
+    """
+    # Every AI call OpenAI answers, collected for the usage panel and the spending cap.
+    ai_calls: list[AiCall] = []
+    try:
+        data = file.file.read()
+        file_type, text, read_by_ocr = extract_text(data, ai_calls)
+        _, structured_data = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
+        save_public_resume(db, candidate_id, resume_id, structured_data, ai_calls)
+    except UnsupportedFileTypeError as exc:
+        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
+    except (ResumeExtractionError, ResumeStructuringError) as exc:
+        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
+    except AiExtractionError as exc:
+        status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
+    except SQLAlchemyError:
+        # hide_parameters on the engine keeps the CV data out of this log.
+        logger.exception("Could not store the public resume: database error")
+        status_code, detail = status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE
+    else:
+        return PublicResumeResponse(
+            candidate_id=candidate_id, resume_id=resume_id, data=structured_data
+        )
+    save_ai_calls_without_intake(db, ai_calls)
+    raise HTTPException(status_code, detail)
+
+
+# Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
+@router.get("/resumes/{candidate_id}/{resume_id}/pdf")
+def read_public_resume_pdf(
+    candidate_id: Annotated[PublicId, Path()],
+    resume_id: Annotated[PublicId, Path()],
+    db: Annotated[Session, Depends(get_db)],
+    template_id: int = MINISTRYHUB_TEMPLATE_ID,
+) -> Response:
+    """Return the pair's details as the branded PDF for `template_id` (only 1, MinistryHub).
+
+    200 inline `application/pdf`; 401 bad key; 404 unknown template or pair; 500 stored details
+    unreadable or Chromium failed; 503 database unavailable.
+    """
+    if template_id != MINISTRYHUB_TEMPLATE_ID:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Template not found.")
+    try:
+        row = get_public_resume(db, candidate_id, resume_id)
+    except SQLAlchemyError:
+        logger.exception("Could not read the public resume: database error")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resume not found.")
+
+    try:
+        data = ResumeData.model_validate(row.structured_data)
+    except ValidationError:
+        # The error's message quotes the stored values (CV data): log the row id only, never chain.
+        logger.error("Stored structured_data for public resume %s doesn't match ResumeData", row.id)
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "The stored CV details can't be read."
+        ) from None
+
+    try:
+        pdf = render_pdf(build_resume_html(data, date.today()))
+    except PdfRenderError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from None
+
+    # The name is AI output: always percent-encoded (also /, \, quotes, CR and LF).
+    filename = quote(f"MinistryHub - {data.name}.pdf", safe="")
+    return Response(
+        pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
+            # Personal data: no client or proxy keeps a copy in its HTTP cache.
+            "Cache-Control": "no-store",
+        },
+    )

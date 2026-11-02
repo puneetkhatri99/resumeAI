@@ -12,13 +12,14 @@ from app.core.rate_limit import (
     API_LIMIT,
     API_WINDOW_SECONDS,
     UPLOAD_LIMIT,
-    UPLOAD_PATH,
     UPLOAD_WINDOW_SECONDS,
     RateLimiter,
 )
 from app.features.resume_intake.router import require_ai_budget
 from app.main import app
 
+UPLOAD_PATH = "/api/resume_intake"
+PUBLIC_UPLOAD_PATH = "/api/public/resumes"
 UNKNOWN_API_PATH = "/api/no_such_endpoint"  # a 404 that needs no database, but is still /api
 
 
@@ -67,6 +68,17 @@ def test_the_31st_upload_in_an_hour_is_429_but_other_requests_still_pass(
     assert response.headers["retry-after"] == str(UPLOAD_WINDOW_SECONDS)
     assert response.json() == {"detail": "Too many requests. Try again in 3600 seconds."}
     assert client.get(UNKNOWN_API_PATH).status_code == 404
+
+
+def test_public_uploads_share_the_upload_limit(clock: FakeClock) -> None:
+    """POST /api/public/resumes also runs AI extraction, so it counts in the same hourly bucket."""
+    limiter = RateLimiter()
+    for _ in range(UPLOAD_LIMIT - 1):
+        assert limiter.check("203.0.113.1", "POST", PUBLIC_UPLOAD_PATH) is None
+    assert limiter.check("203.0.113.1", "POST", UPLOAD_PATH) is None
+
+    assert limiter.check("203.0.113.1", "POST", PUBLIC_UPLOAD_PATH) == UPLOAD_WINDOW_SECONDS
+    assert limiter.check("203.0.113.1", "GET", "/api/public/resumes/a/b/pdf") is None
 
 
 def test_requests_outside_api_are_not_counted(client: TestClient, clock: FakeClock) -> None:

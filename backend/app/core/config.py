@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # All-time AI spending cap in USD (ai_usage). Once the recorded cost reaches it, uploads
     # get 402 until it is raised.
     ai_spend_cap_usd: Decimal = Decimal("5")
+    # The X-API-Key that callers of /api/public must send (public_api). Unset: every public
+    # route answers 401, and the rest of the app still starts.
+    public_api_key: SecretStr | None = None
 
 
 settings = Settings()

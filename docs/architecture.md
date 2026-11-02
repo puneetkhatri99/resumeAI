@@ -4,7 +4,8 @@
 1. **resume_intake:** a recruiter drops in a CV (PDF, DOCX, DOC or TXT) and fills in an interview form. The CV text is extracted (a scanned PDF by OCR), structured by AI (below) and stored with the answers, and all of it is shown back to the recruiter. The upload streams its progress as Server-Sent Events.
 2. **resume_structuring:** uses AI (OpenAI) to turn the CV text into structured data: contact details, links, skills, experience, education, projects and certificates. It also reads scanned PDFs by OCR (OpenAI vision). It runs inside the intake upload; it has no endpoint of its own.
 3. **resume_generation:** renders the branded MinistryHub PDF from the structured data, on demand (`GET /api/resume_generation/{intake_id}`, opened from the result screen's "Open branded PDF" link). The PDF isn't stored.
-4. **ai_usage:** records every answered OpenAI call (model, call type, tokens, cost priced at that model) and shows usage and cost on the AI usage panel (`#/usage`, `GET /api/ai_usage`); the past-interviews list shows each CV's AI cost.
+4. **public_api:** the same extraction and branded PDF for outside systems (e.g. Loxo), behind an `X-API-Key` header and keyed by the caller's own `candidate_id` + `resume_id`: `POST /api/public/resumes` (JSON) and `GET /api/public/resumes/{candidate_id}/{resume_id}/pdf?template_id=1`.
+5. **ai_usage:** records every answered OpenAI call (model, call type, tokens, cost priced at that model) and shows usage and cost on the AI usage panel (`#/usage`, `GET /api/ai_usage`); the past-interviews list shows each CV's AI cost.
 
 The client project is MinistryHub branded resumes, triggered from Loxo.
 
@@ -13,6 +14,7 @@ The detailed design for each feature lives in `docs/features/<feature>.md`, writ
 - `resume_generation` (the branded PDF) is designed and built.
 - `ai_usage` (the AI usage panel) is designed and built.
 - Rate limiting and the AI spending cap (`docs/features/rate_limit_and_spend_cap.md`) are designed and built.
+- `public_api` (`docs/features/public_api.md`) is designed and built; its migration awaits the user's approval to run on Aiven.
 
 ## Layout
 ```
@@ -132,4 +134,5 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-10-27 | Per-IP rate limit on every `/api` request: 120 per minute, plus 30 uploads per hour on top. In-memory sliding window (`core/rate_limit.py`, Starlette `BaseHTTPMiddleware`, a lock-guarded dict of deques), 429 with `Retry-After`. | User choice: no new package. Counts reset on restart and are per instance (enough for one Render instance). The client IP is `request.client.host`; trusting Render's forwarded header is set up in the deploy step. |
 | 2026-10-27 | Database on Aiven for PostgreSQL (`sslmode=require`); `backend/.env` points at it, and the local Postgres line is kept commented out. (Supersedes "Local Postgres install" for the database.) | User choice, for the deploy. |
 | 2026-10-27 | Deploy on Render as **one Docker web service** (root `Dockerfile`): stage 1 builds the frontend, stage 2 is `python:3.13-slim` with `playwright install --with-deps --only-shell chromium`. FastAPI serves the built frontend from `backend/static` at `/` (mounted only when that folder exists) and the API at `/api`. The container runs `alembic upgrade head` on every start. | One origin, so no CORS and no API URL to configure; one service. Docker because Chromium needs system libraries that Render's native Python runtime can't install. |
+| 2026-11-02 | Public API in the `public_api` slice: one shared key in the `X-API-Key` header (`PUBLIC_API_KEY`; unset = 401), its own table `public_resumes` keyed by the caller's unique `(candidate_id, resume_id)` (a repeat replaces, by `INSERT … ON CONFLICT DO UPDATE`), plain JSON instead of SSE, the PDF by `template_id` (only 1). Its AI calls are stored unlinked and count toward the spending cap; its POST shares the upload rate-limit bucket. | User choice (`docs/features/public_api.md`). A separate table, because `resume_intakes` rows need the interview answers and show in the web history. |
 | Open | Render forwarded-header trust for the client IP (until then every visitor shares one rate-limit bucket), auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |

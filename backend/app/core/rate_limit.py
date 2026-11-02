@@ -1,9 +1,9 @@
 """Per-IP rate limiting for every /api request: an in-memory sliding window, no package needed.
 
 Two limits (user decision, 2026-10-27): 120 /api requests per minute overall, plus 30 uploads
-(POST /api/resume_intake) per hour, counted on top of the overall limit. A request over either
-gets 429 with a Retry-After header. The counts live in this process's memory, so they reset on
-a restart and aren't shared between instances.
+(POST /api/resume_intake and POST /api/public/resumes together) per hour, counted on top of
+the overall limit. A request over either gets 429 with a Retry-After header. The counts live in
+this process's memory, so they reset on a restart and aren't shared between instances.
 
 The client IP is request.client.host. Behind a proxy (Render) that is the proxy's address
 unless uvicorn is set up to trust its forwarded header; the deploy step sets that up.
@@ -19,7 +19,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 API_PREFIX = "/api"
-UPLOAD_PATH = "/api/resume_intake"
+# POSTs to these paths run AI extraction, so they also count in the "upload" bucket.
+UPLOAD_PATHS = {"/api/resume_intake", "/api/public/resumes"}
 API_LIMIT = 120
 API_WINDOW_SECONDS = 60
 UPLOAD_LIMIT = 30
@@ -51,7 +52,7 @@ class RateLimiter:
         Returns None when it is allowed (and records it), or the whole seconds until it would
         be allowed (and records nothing).
         """
-        buckets = ["api", "upload"] if method == "POST" and path == UPLOAD_PATH else ["api"]
+        buckets = ["api", "upload"] if method == "POST" and path in UPLOAD_PATHS else ["api"]
         now = monotonic()
         with self._lock:
             if now - self._last_sweep >= SWEEP_INTERVAL_SECONDS:

@@ -21,6 +21,8 @@ ResumeAI takes an existing resume, uses AI to turn it into structured data, and 
 
    Optional: `AI_SPEND_CAP_USD` (default `5`) is the all-time AI spending cap in USD. Once the recorded AI cost reaches it, uploads answer HTTP 402 ("AI spending limit reached. Uploads are paused.") until you raise it and restart the backend. Every `/api` endpoint is also rate-limited per IP (120 requests a minute, plus 30 uploads an hour; HTTP 429 when over). See [docs/features/rate_limit_and_spend_cap.md](docs/features/rate_limit_and_spend_cap.md).
 
+   Optional: `PUBLIC_API_KEY` is the key outside systems send as the `X-API-Key` header to the public API (`/api/public`, see [docs/features/public_api.md](docs/features/public_api.md)). Unset or empty, every public route answers HTTP 401.
+
 ## 2. Backend
 ```powershell
 cd backend
@@ -101,7 +103,7 @@ No test calls OpenAI except the e2e live test above: pytest replaces the client 
 The app deploys as one Docker web service from the root [Dockerfile](Dockerfile). It builds the frontend, and FastAPI serves it at `/` with the API at `/api`. The container runs `alembic upgrade head` on every start.
 
 1. On Render, go to **New → Web Service**, pick this GitHub repo, and set **Language** to **Docker**.
-2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`. `AI_SPEND_CAP_USD` is optional (default 5). `.env` isn't in the image.
+2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`. `AI_SPEND_CAP_USD` is optional (default 5). `PUBLIC_API_KEY` is optional (unset closes the public API). `.env` isn't in the image.
 3. Deploy, then check that `https://<service>.onrender.com/api/health` shows `{"status":"ok","database":"ok"}`.
 
 There's no login yet, so anyone with the URL can use the app.

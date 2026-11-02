@@ -14,6 +14,7 @@ from starlette.middleware.body_limit import RequestBodyLimitMiddleware
 from app.core.rate_limit import RateLimitMiddleware
 from app.features.ai_usage.router import router as ai_usage_router
 from app.features.health.router import router as health_router
+from app.features.public_api.router import router as public_api_router
 from app.features.resume_generation.router import router as resume_generation_router
 from app.features.resume_intake.router import router as resume_intake_router
 
@@ -31,6 +32,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(resume_intake_router, prefix="/api")
 app.include_router(resume_generation_router, prefix="/api")
 app.include_router(ai_usage_router, prefix="/api")
+app.include_router(public_api_router, prefix="/api")
 
 # Mounted last, so every /api route above wins. html=True serves index.html at /; the app's
 # pages are hash addresses (#/history), so no other fallback is needed.

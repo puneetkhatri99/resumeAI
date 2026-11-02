@@ -13,6 +13,34 @@ Entry format:
 
 ---
 
+### 2026-11-02: Public API for outside systems (Loxo): the user's choices
+- **Context:** the user asked for two public endpoints: send a resume with the caller's ids and get the extracted data; send the ids and a template id and get the formatted PDF. Plan approved 2026-11-02; built as the `public_api` slice (`docs/features/public_api.md`).
+- **Learning (the user's decisions):**
+  - **The caller sends both `candidate_id` and `resume_id`** (strings, 1–100 characters, no `/`: the user chose a 422 so every stored pair is reachable by the PDF URL); a repeat pair **replaces** the stored details.
+  - **Resume only:** no interview answers. So it has its own table `public_resumes`, not `resume_intakes`.
+  - **Auth: one `X-API-Key` header**, env `PUBLIC_API_KEY` (unset or empty = every public route 401).
+  - **API 1 returns plain JSON** (not SSE); **API 2 returns the PDF**. `template_id=1` (MinistryHub) is the only template; anything else is 404.
+  - Not included: storing the CV text or file, listing public resumes, a frontend, per-client keys.
+- **Learning (found while building):**
+  - **`ai_calls.resume_intake_id` only links to `resume_intakes`,** so public uploads' calls are stored unlinked; they still count toward the spending cap. The public POST shares the 30/hour upload bucket (`UPLOAD_PATHS` in `core/rate_limit.py`).
+  - **The migration isn't on Aiven yet** (`a06140ee4e9b`, needs the user's go-ahead), so the new slice's DB tests fail there with `UndefinedTable` until it runs. To verify before that, a scratch pytest plugin created the table on `db_session.bind` (the outer, always rolled-back transaction; Postgres DDL is transactional) and every test passed. Create it on the connection, not the session: the router's `db.rollback()` would roll back a SAVEPOINT holding it.
+  - **Live check (1 approved OpenAI call, 2026-11-02):** the user kept Aiven unmigrated ("not yet") and chose the local Postgres instead. The local DB (the commented `DATABASE_URL` line in `backend/.env`) was upgraded to `a06140ee4e9b`, and a throwaway backend on :8001 used it. Wrong key → 401; a synthetic TXT CV → 200 in 5.5 s with every field right; its PDF → 200 in 1.7 s (76 KB); `template_id=2` → 404. The pair `cand-demo-1`/`res-demo-1` stays in the local `public_resumes` table.
+  - **Consumer guide:** `docs/public_api_guide.md` (user asked for an MD file; also a shared Claude Doc). It never contains the key. A random `PUBLIC_API_KEY` (`secrets.token_urlsafe(32)`) was added to `backend/.env` on 2026-11-02; Render needs the same value set by hand.
+- **Applies to:** `public_api`, `ai_usage`, `core/rate_limit.py`, and the Aiven migration step.
+
+### 2026-10-27: Demo video of the live site, and what the live site showed
+- **Context:** the user wanted a client demo video (screen recording; voice-over added later by them in Clipchamp). Live Render site `ai-resume-data-extractor.onrender.com`, one real OpenAI call approved (and used: intake 42, a synthetic CV), no captions or cards. The video and narration script are in `C:\Users\lenovo\Videos\`; the scripts are in this session's scratchpad (`demo\`), not the repo.
+- **Learning:**
+  - **The live DB holds real people's rows** (the past-interviews list and the AI usage page show names and emails). The video blurs every row except the demo candidate. Don't screen-record those pages unblurred.
+  - **The branded PDF takes about 10–11 s on Render** (3 timed GETs: 11, 11, 10 s) against 1–4 s locally. One GET was also reset (`ECONNRESET`) once, then worked; this fits the single-Chromium-per-PDF and small-instance explanation (not confirmed: no Render metrics seen).
+  - **Tooling traps:**
+    - Playwright's bundled ffmpeg (`ms-playwright\ffmpeg-*`) is tiny: VP9/VP8 only, no `trim` filter, no concat demuxer, no H.264. `pip install --target <scratch> imageio-ffmpeg` gives a full ffmpeg (H.264, concat) without touching the venv.
+    - `record_video_dir` leaves a 0-byte `.webm` for every run that crashed; a glob over the folder then passes two files to ffmpeg and it hangs. Pick the file by size.
+    - `page.goto(same_url + '#/other')` from a page filled with `set_content` is a same-document hash change: nothing reloads. Add a query string to force a load.
+    - `mouse.wheel` over a scrollable `<pre>` scrolls the box, not the page; park the mouse in the page margin.
+    - Headless Chromium can't show a PDF, so the demo shows the real PDF fetched from the live API, rendered to PNG with pypdfium2 and a hand-written PNG writer (no Pillow).
+- **Applies to:** any future demo recording, and the PDF-speed question on Render.
+
 ### 2026-10-27: Render deploy: one Docker service
 - **Context:** the user asked whether the frontend and backend can deploy together on Render, then said "add file" (Render is already connected to their GitHub).
 - **Learning:**
