@@ -28,6 +28,7 @@ from app.features.resume_structuring.schemas import (
     Certificate,
     Education,
     Experience,
+    InferredSkill,
     Project,
     ResumeData,
 )
@@ -39,8 +40,11 @@ FAKE_RESUME_DATA = ResumeData(
     email="jane.doe@example.com",
     phone="+1 555 0100",
     location="Springfield, USA",
+    summary="Software engineer who builds APIs.",
     links=["https://github.com/janedoe"],
     skills=["Python", "SQL"],
+    # The evidence is in every CV text the tests send, so keep_proven_skills keeps it by default.
+    inferred_skills=[InferredSkill(name="Teamwork", evidence="Jane Doe")],
     experience=[
         Experience(
             company="Acme Corp",

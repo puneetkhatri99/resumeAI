@@ -8,8 +8,10 @@ const FULL_DATA: ResumeData = {
   email: 'jane.doe@example.com',
   phone: '+1 555 0100',
   location: 'Springfield, USA',
+  summary: 'Software engineer who builds APIs.',
   links: ['https://github.com/janedoe'],
   skills: ['Python', 'SQL'],
+  inferred_skills: [{ name: 'FastAPI', evidence: 'Built APIs with FastAPI' }],
   experience: [
     {
       company: 'Acme Corp',
@@ -40,8 +42,10 @@ const EMPTY_DATA: ResumeData = {
   email: 'jane.doe@example.com',
   phone: null,
   location: null,
+  summary: null,
   links: [],
   skills: [],
+  inferred_skills: [],
   experience: [],
   education: [],
   projects: [],
@@ -56,11 +60,12 @@ describe('StructuredResume', () => {
   it('shows every section with its details', () => {
     render(<StructuredResume data={FULL_DATA} />)
 
-    expect(headingTexts()).toEqual(['Contact', 'Links', 'Skills', 'Experience', 'Education', 'Projects', 'Certificates'])
+    expect(headingTexts()).toEqual(['Contact', 'Summary', 'Links', 'Skills', 'Experience', 'Education', 'Projects', 'Certificates'])
     for (const text of [
       'Jane Doe',
       'jane.doe@example.com',
       '+1 555 0100',
+      'Software engineer who builds APIs.',
       'https://github.com/janedoe',
       'Python',
       'SQL',
@@ -107,5 +112,22 @@ describe('StructuredResume', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByText('javascript:alert(1)')).toBeInTheDocument()
     expect(screen.getAllByRole('link')).toHaveLength(1)
+  })
+
+  it('shows inferred skills as ordinary chips after the listed ones', () => {
+    render(<StructuredResume data={FULL_DATA} />)
+
+    const chips = screen.getAllByRole('listitem').filter((item) => item.closest('.skill-chips'))
+    expect(chips.map((chip) => chip.textContent)).toEqual(['Python', 'SQL', 'FastAPI'])
+    expect(screen.queryByText('Built APIs with FastAPI')).not.toBeInTheDocument()
+  })
+
+  it('renders old data without the summary and inferred skills fields', () => {
+    const { summary: _summary, inferred_skills: _inferred, ...oldData } = FULL_DATA
+
+    render(<StructuredResume data={oldData} />)
+
+    expect(headingTexts()).toEqual(['Contact', 'Links', 'Skills', 'Experience', 'Education', 'Projects', 'Certificates'])
+    expect(screen.getByText('Python')).toBeInTheDocument()
   })
 })

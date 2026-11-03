@@ -21,3 +21,11 @@ class PublicResumeResponse(BaseModel):
     candidate_id: str
     resume_id: str
     data: ResumeData
+
+
+class PublicPdfResponse(BaseModel):
+    """The answer to POST /api/public/pdf: the branded PDF's permanent public URL and the
+    AI-extracted details it was made from."""
+
+    url: str
+    data: ResumeData

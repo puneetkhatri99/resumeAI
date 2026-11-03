@@ -1,6 +1,6 @@
 # public_api
 
-**Purpose:** let an outside system (e.g. Loxo) send a resume under its own `candidate_id` and `resume_id` and get the AI-extracted details back, then fetch the branded MinistryHub PDF for that pair; or send a resume and get its branded PDF straight back (`POST /api/public/pdf`, which also saves a candidate, source `"api"`, see [candidates](../candidates/README.md)). Design: [docs/features/public_api.md](../../../../docs/features/public_api.md).
+**Purpose:** let an outside system (e.g. Loxo) send a resume under its own `candidate_id` and `resume_id` and get the AI-extracted details back, then fetch the branded MinistryHub PDF for that pair; or send a resume and get a permanent link to its branded PDF plus the extracted details (`POST /api/public/pdf`, which also saves a candidate, source `"api"`, see [candidates](../candidates/README.md)). Design: [docs/features/public_api.md](../../../../docs/features/public_api.md).
 
 ## Auth
 Every route needs the header `X-API-Key: <PUBLIC_API_KEY>`. A missing or wrong key, or no `PUBLIC_API_KEY` configured (unset or empty), is **401** `{"detail": "Invalid or missing API key."}`. In `/docs`, use "Authorize" to send it.
@@ -12,7 +12,7 @@ Every route needs the header `X-API-Key: <PUBLIC_API_KEY>`. A missing or wrong k
 {"candidate_id": "cand-1", "resume_id": "res-1", "data": { "...ResumeData..." }}
 ```
 
-A repeat pair replaces the stored details.
+A repeat pair replaces the stored details. `data` includes `summary` and `inferred_skills` (added 2026-11-03, `docs/features/resume_upgrade.md`); pairs stored before then read with `null` / `[]`.
 
 | Code | When |
 |---|---|
@@ -29,7 +29,7 @@ Errors are `{"detail": ...}`. Nothing is stored on an error, but AI calls OpenAI
 
 **`GET /api/public/resumes/{candidate_id}/{resume_id}/pdf?template_id=1`**: `template_id` defaults to 1 (MinistryHub, the only template). Answers **200** with the PDF, inline, with the same headers as `GET /api/resume_generation/{id}` (`Content-Disposition: inline; filename*=UTF-8''MinistryHub%20-%20<name>.pdf`, `Cache-Control: no-store`). 404 "Template not found." for any other `template_id`; 404 "Resume not found." for an unknown pair; 500 if the stored details can't be read or Chromium fails; 503 if the database is down.
 
-**`POST /api/public/pdf`** (2026-11-03): multipart form with `file` and an optional integer `template_id` (default 1). Checks run in this order: rate limit (429, the upload bucket), body limit (413), key (401), spending cap (402/503), form (422, e.g. a non-integer `template_id`), then `template_id != 1` is **404** "Template not found." before any AI call. Then it reads the CV, runs the AI, renders the PDF and stores it as a candidate (`candidates.service.store_candidate`: the original in the private bucket, the PDF in the public bucket, a `candidates` row with `source="api"`). Answers **200** with the PDF bytes and the same headers as the GET above. Errors: 415, 422 (unusable CV), 500 (Chromium), **502** (an AI call, or storing the files: "Could not store the resume files. Try again."; no PDF is returned then), 503. Usually 5-30 s; the worst case is about 9 minutes (3 AI calls of up to 120 s, rendering, two PUTs with retries), so callers should set a **10-minute** timeout.
+**`POST /api/public/pdf`** (2026-11-03): multipart form with `file` and an optional integer `template_id` (default 1). Checks run in this order: rate limit (429, the upload bucket), body limit (413), key (401), spending cap (402/503), form (422, e.g. a non-integer `template_id`), then `template_id != 1` is **404** "Template not found." before any AI call. Then it reads the CV, runs the AI, renders the PDF and stores it as a candidate (`candidates.service.store_candidate`: the original in the private bucket, the PDF in the public bucket, a `candidates` row with `source="api"`). Answers **200** JSON `PublicPdfResponse` `{url, data}`: `url` is the branded PDF's permanent public URL (`candidates.service.public_url`, the same link `POST /api/candidates` sends in `done`) and `data` is the `ResumeData` it was rendered from. It returned the PDF bytes until 2026-11-03; the user changed it to the link because a PDF body was confusing next to the other JSON endpoints. Errors: 415, 422 (unusable CV), 500 (Chromium), **502** (an AI call, or storing the files: "Could not store the resume files. Try again."; no link is returned then), 503. Usually 5-30 s; the worst case is about 9 minutes (3 AI calls of up to 120 s, rendering, two PUTs with retries), so callers should set a **10-minute** timeout.
 
 ## Files
 - `router.py`: `require_api_key` (router-wide), `ai_usage.require_ai_budget` (the POSTs only; the one shared copy), the three endpoints, and `pdf_response` (the PDF with its headers, shared by the GET and `POST /pdf`). The GET and `POST /pdf` are plain `def`s (sync Playwright).

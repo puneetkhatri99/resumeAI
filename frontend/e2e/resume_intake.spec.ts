@@ -38,8 +38,10 @@ const STORED_INTAKE = {
     email: 'jane.doe@example.com',
     phone: null,
     location: null,
+    summary: null,
     links: [],
     skills: [],
+    inferred_skills: [],
     experience: [
       { company: 'Acme Corp', title: 'Senior Python developer', start_date: 'Jan 2020', end_date: 'Present', location: null, description: null },
     ],

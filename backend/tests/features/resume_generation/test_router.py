@@ -194,6 +194,19 @@ def test_database_down_is_503(client: TestClient) -> None:
     assert response.json() == {"detail": "The database is unavailable. Try again later."}
 
 
+def test_a_row_stored_before_summary_and_inferred_skills_still_renders(
+    client: TestClient, db_session: Session, fake_renderer: FakeRenderer
+) -> None:
+    """Old rows have no summary or inferred_skills keys; the model defaults fill them in."""
+    stored = FAKE_RESUME_DATA.model_dump(exclude={"summary", "inferred_skills"})
+    intake_id = store_intake(db_session, stored)
+
+    response = client.get(f"/api/resume_generation/{intake_id}")
+
+    assert response.status_code == 200
+    assert "Other Links" in fake_renderer.pages[0]
+
+
 def test_stored_data_that_does_not_match_the_schema_is_500_without_leaking_it(
     client: TestClient,
     db_session: Session,
@@ -257,3 +270,40 @@ def test_render_failure_is_500(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Could not create the PDF. Try again."}
+
+
+def test_a_stored_row_with_unknown_extra_keys_still_renders(
+    client: TestClient, db_session: Session, fake_renderer: FakeRenderer
+) -> None:
+    stored = {**FAKE_RESUME_DATA.model_dump(), "future_field": "x"}
+    intake_id = store_intake(db_session, stored)
+
+    response = client.get(f"/api/resume_generation/{intake_id}")
+
+    assert response.status_code == 200
+    assert "future_field" not in fake_renderer.pages[0]
+
+
+def test_a_stored_hostile_summary_is_escaped_in_the_page_sent_to_the_renderer(
+    client: TestClient, db_session: Session, fake_renderer: FakeRenderer
+) -> None:
+    stored = {**FAKE_RESUME_DATA.model_dump(), "summary": "</p><script>alert(1)</script>"}
+    intake_id = store_intake(db_session, stored)
+
+    response = client.get(f"/api/resume_generation/{intake_id}")
+
+    assert response.status_code == 200
+    assert "<script>alert(1)" not in fake_renderer.pages[0]
+    assert "&lt;script&gt;alert(1)" in fake_renderer.pages[0]
+
+
+def test_a_stored_row_with_null_inferred_skills_is_500_not_a_crash(
+    client: TestClient, db_session: Session, fake_renderer: FakeRenderer
+) -> None:
+    """The new field has a list default, not None: a stored null is unreadable, as designed."""
+    intake_id = store_intake(db_session, {**FAKE_RESUME_DATA.model_dump(), "inferred_skills": None})
+
+    response = client.get(f"/api/resume_generation/{intake_id}")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "The stored CV details can't be read."}

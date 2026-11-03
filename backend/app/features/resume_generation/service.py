@@ -13,12 +13,13 @@ import threading
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from jinja2 import Environment, FileSystemLoader
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from app.features.resume_structuring.service import ResumeData
+from app.features.resume_structuring.service import Education, Experience, ResumeData
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,30 @@ LINE_BREAK = re.compile(r"\r\n|\r|\n")
 # One leading list marker, only when whitespace (or nothing) follows, so "-30%" and "*Important*"
 # stay as written.  is Word's Symbol-font bullet as text extraction leaves it.
 BULLET_MARKER = re.compile(r"^\s*[•\-*·–▪●◦➢](?:\s+|$)")
+
+# Link groups, by web address. A host matches a domain when it is that domain or a subdomain.
+SOCIAL_HOSTS = (
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "x.com",
+    "twitter.com",
+    "threads.net",
+)
+VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "fb.watch")
+# Facebook videos, reels and watch links (including shared ones); any other Facebook address is
+# a page or profile.
+FACEBOOK_VIDEO_PATH = re.compile(
+    r"^/(watch|reel|videos|video\.php|share/[vr]|[^/]+/videos)(/|$)", re.IGNORECASE
+)
+LINK_GROUPS = (
+    ("social", "Social Media"),
+    ("videos", "Teaching & Worship Videos"),
+    ("other", "Other Links"),
+)
+# Only digits and the usual separators: "x12", "/" or letters leave a phone as written.
+PHONE_CHARS = re.compile(r"^[\d\s().+\-]+$")
 
 
 class PdfRenderError(Exception):
@@ -139,6 +164,83 @@ def total_years(spans: list[tuple[str | None, str | None]], today: date) -> str 
     return "1 year" if years == 1 else f"{years} years"
 
 
+def is_current(entry: Experience | Education) -> bool:
+    """Whether a job (or degree) is ongoing: its end date is "Present" or another ongoing word
+    ("Current", "Till date"), as old rows may have.
+    """
+    return entry.end_date is not None and ONGOING_WORDS.search(entry.end_date) is not None
+
+
+def order_experience(jobs: list[Experience], today: date) -> list[Experience]:
+    """Return the jobs in the order the client asked for: every current job first (newest start
+    first, an unreadable start after the dated ones), then past jobs by end date, newest first
+    (the start date when the end can't be read; ties by start date), then jobs with no readable
+    date. The sort is stable, so equal keys keep the CV's order. The AI's order isn't trusted.
+    """
+
+    def sort_key(job: Experience) -> tuple[int, int, int, int, int]:
+        start = read_date(job.start_date, today)
+        # A start with no month counts as month 0, an end with no month as 13 (as total_years).
+        start_key = (-start[0], -(start[1] or 0)) if start else (1, 1)
+        if is_current(job):
+            return (0, *start_key, 0, 0)
+        end = read_date(job.end_date, today) or start
+        if end is None:
+            return (2, 0, 0, 0, 0)
+        return (1, -end[0], -(end[1] or 13), *start_key)
+
+    return sorted(jobs, key=sort_key)
+
+
+def format_phone(phone: str | None) -> str | None:
+    """Return a US number as "(555) 010-0100": 10 digits, or 11 with a leading 1, with only
+    digits and the usual separators. Anything else (another country, an extension, two numbers)
+    is returned as written.
+    """
+    if phone is None or not PHONE_CHARS.match(phone):
+        return phone
+    digits = re.sub(r"\D", "", phone)
+    us_country_code = len(digits) == 11 and digits.startswith("1")
+    # A "+" means a country code, so "+45 12 34 56 78" (10 digits) isn't a US number.
+    if "+" in phone and not us_country_code:
+        return phone
+    if us_country_code:
+        digits = digits[1:]
+    if len(digits) != 10:
+        return phone
+    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+
+
+def link_group(link: str) -> str:
+    """Return the group key of one link ("social", "videos" or "other") from its web address.
+
+    A value with no host, a bare word ("GitHub") or an unparsable one is "other"; never raises.
+    """
+    try:
+        parts = urlsplit(link if "://" in link else "https://" + link)
+        host = parts.hostname or ""
+    except ValueError:
+        return "other"
+
+    def on(domains: tuple[str, ...]) -> bool:
+        return any(host == domain or host.endswith("." + domain) for domain in domains)
+
+    if on(VIDEO_HOSTS) or (on(("facebook.com",)) and FACEBOOK_VIDEO_PATH.match(parts.path)):
+        return "videos"
+    return "social" if on(SOCIAL_HOSTS) else "other"
+
+
+def group_links(links: list[str]) -> list[tuple[str, list[str]]]:
+    """Return the links as (label, links) in LINK_GROUPS order, non-empty groups only.
+
+    Links are stripped and exact duplicates dropped (the first is kept).
+    """
+    grouped: dict[str, list[str]] = {key: [] for key, _ in LINK_GROUPS}
+    for link in dict.fromkeys(link.strip() for link in links):
+        grouped[link_group(link)].append(link)
+    return [(label, grouped[key]) for key, label in LINK_GROUPS if grouped[key]]
+
+
 def split_bullets(text: str | None) -> list[str]:
     """Split a description on CR/LF into bullet lines, without a leading marker or blank lines."""
     if text is None:
@@ -170,6 +272,7 @@ def is_http_url(url: str | None) -> bool:
 environment = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
 environment.filters["bullets"] = split_bullets
 environment.tests["http_url"] = is_http_url
+environment.tests["current"] = is_current
 environment.globals["format_duration"] = format_duration
 
 FONT_URIS = {
@@ -193,6 +296,8 @@ def build_resume_html(data: ResumeData, today: date) -> str:
     """Render the branded resume page for `data` as one self-contained HTML string.
 
     Blank values are dropped first (drop_blanks); links are stripped before the http(s) check.
+    Jobs are ordered (order_experience), a US phone is formatted (format_phone), links are
+    grouped (group_links), and inferred skills follow the listed ones, unmarked.
     """
     cleaned = {key: drop_blanks(value) for key, value in data.model_dump().items()}
     shown = ResumeData.model_validate(
@@ -200,7 +305,14 @@ def build_resume_html(data: ResumeData, today: date) -> str:
     )
     spans = [(job.start_date, job.end_date) for job in shown.experience]
     return environment.get_template("resume.html.j2").render(
-        data=shown, today=today, total_years=total_years(spans, today), fonts=FONT_URIS
+        data=shown,
+        today=today,
+        total_years=total_years(spans, today),
+        experience=order_experience(shown.experience, today),
+        phone=format_phone(shown.phone),
+        link_groups=group_links(shown.links),
+        skills=shown.skills + [skill.name for skill in shown.inferred_skills],
+        fonts=FONT_URIS,
     )
 
 

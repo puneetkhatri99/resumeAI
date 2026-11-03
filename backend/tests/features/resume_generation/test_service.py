@@ -24,6 +24,10 @@ from app.features.resume_generation.service import (
     PdfRenderError,
     build_resume_html,
     format_duration,
+    format_phone,
+    group_links,
+    is_current,
+    order_experience,
     read_date,
     render_pdf,
     split_bullets,
@@ -33,6 +37,7 @@ from app.features.resume_structuring.schemas import (
     Certificate,
     Education,
     Experience,
+    InferredSkill,
     Project,
     ResumeData,
 )
@@ -188,8 +193,8 @@ def test_only_http_links_become_hrefs() -> None:
     assert re.findall(r'href="([^"]*)"', html) == ["https://example.com/jane"]
     assert "javascript:alert(1)" in html
     assert "www.janedoe.dev" in html
-    for label in ("LINK 1", "LINK 2", "LINK 3"):
-        assert label in html
+    assert "Other Links" in html
+    assert "LINK 1" not in html
 
 
 @pytest.mark.parametrize(
@@ -295,8 +300,7 @@ def test_blank_values_are_hidden_and_links_are_stripped() -> None:
 
     assert re.findall(r'href="([^"]*)"', html) == ["https://example.com/jane"]
     assert ">https://example.com/jane<" in html
-    assert "LINK 1" in html
-    assert "LINK 2" not in html
+    assert "Other Links" in html
     assert re.findall(r'<li class="pill">([^<]*)</li>', html) == ["Python"]
     for hidden in ("Phone number", "Employment History", "Licenses & Certifications", "tile tile"):
         assert hidden not in html
@@ -324,11 +328,16 @@ def test_full_data_shows_every_section() -> None:
 
 @pytest.mark.parametrize(
     ("start_date", "end_date", "chip"),
-    [("2015", "2019", "2019"), ("Sept 2015", None, "Sept 2015")],
-    ids=["end-date", "start-date-when-no-end"],
+    [
+        ("2015", "2019", "2019"),
+        ("2024", "Expected 2026", "Expected 2026"),
+        ("2023", "Present", "In progress"),
+        ("Sept 2015", None, None),
+    ],
+    ids=["graduation-date", "expected", "ongoing", "start-date-alone-shows-no-chip"],
 )
-def test_education_chip_shows_a_date_as_written(
-    start_date: str, end_date: str | None, chip: str
+def test_education_chip_shows_only_the_graduation_date(
+    start_date: str, end_date: str | None, chip: str | None
 ) -> None:
     school = Education(
         institution="State University",
@@ -341,7 +350,8 @@ def test_education_chip_shows_a_date_as_written(
 
     html = build_resume_html(data, TODAY)
 
-    assert f'<span class="chip">{chip}</span>' in html
+    chips = re.findall(r'<span class="chip">([^<]*)</span>', html)
+    assert chips == ([chip] if chip else [])
 
 
 def test_html_loads_nothing_from_outside() -> None:
@@ -352,6 +362,217 @@ def test_html_loads_nothing_from_outside() -> None:
     assert all(src.startswith("data:") for src in re.findall(r'src="([^"]*)"', html))
     assert all(url.startswith("data:") for url in re.findall(r"url\(([^)]*)\)", html))
     assert "url(data:font/woff2;base64," in html
+
+
+def job(title: str, start: str | None, end: str | None) -> Experience:
+    """A synthetic job with only a title and dates."""
+    return Experience(
+        company=None, title=title, start_date=start, end_date=end, location=None, description=None
+    )
+
+
+@pytest.mark.parametrize(
+    ("end_date", "expected"),
+    [("Present", True), ("Current", True), ("Till date", True), ("2020", False), (None, False)],
+)
+def test_is_current(end_date: str | None, expected: bool) -> None:
+    assert is_current(job("Pastor", "2019", end_date)) is expected
+
+
+@pytest.mark.parametrize(
+    ("jobs", "expected"),
+    [
+        pytest.param(
+            [
+                job("Old", "2010", "2014"),
+                job("Cur A", "2015", "Present"),
+                job("Cur B", "2021", "Now"),
+            ],
+            ["Cur B", "Cur A", "Old"],
+            id="current-on-top-newest-start-first",
+        ),
+        pytest.param(
+            [job("A", "2010", "2015"), job("B", "2012", "2018"), job("C", "2013", "2015")],
+            ["B", "C", "A"],
+            id="past-by-end-then-start",
+        ),
+        pytest.param(
+            [job("Jun", "2010", "Jun 2015"), job("Year", "2009", "2015")],
+            ["Year", "Jun"],
+            id="year-only-end-counts-as-december",
+        ),
+        pytest.param(
+            [job("No start", None, "Present"), job("Dated", "2020", "Present")],
+            ["Dated", "No start"],
+            id="current-without-start-after-dated-current",
+        ),
+        pytest.param(
+            [job("X", None, None), job("Past", "2010", "2012"), job("Y", "n/a", "n/a")],
+            ["Past", "X", "Y"],
+            id="undatable-last-in-cv-order",
+        ),
+        pytest.param(
+            [job("Start only", "2016", None), job("Ended", "2010", "2015")],
+            ["Start only", "Ended"],
+            id="start-date-when-end-unreadable",
+        ),
+    ],
+)
+def test_order_experience(jobs: list[Experience], expected: list[str]) -> None:
+    assert [entry.title for entry in order_experience(jobs, TODAY)] == expected
+
+
+@pytest.mark.parametrize(
+    ("phone", "expected"),
+    [
+        ("5550100100", "(555) 010-0100"),
+        ("555-010-0100", "(555) 010-0100"),
+        ("(555) 010 0100", "(555) 010-0100"),
+        ("+1 555.010.0100", "(555) 010-0100"),
+        ("1-555-010-0100", "(555) 010-0100"),
+        ("+44 20 7946 0958", "+44 20 7946 0958"),
+        ("555-0100 x12", "555-0100 x12"),
+        ("555 0100 / 555 0101", "555 0100 / 555 0101"),
+        ("12345", "12345"),
+        ("2-555-010-0100", "2-555-010-0100"),
+        (None, None),
+    ],
+)
+def test_format_phone(phone: str | None, expected: str | None) -> None:
+    assert format_phone(phone) == expected
+
+
+SOCIAL, VIDEOS, OTHER = "Social Media", "Teaching & Worship Videos", "Other Links"
+
+
+@pytest.mark.parametrize(
+    ("link", "label"),
+    [
+        ("https://www.linkedin.com/in/janedoe", SOCIAL),
+        ("https://www.facebook.com/gracechurch", SOCIAL),
+        ("https://m.facebook.com/profile.php?id=1", SOCIAL),
+        ("https://instagram.com/reel/abc", SOCIAL),
+        ("https://www.tiktok.com/@jane/video/1", SOCIAL),
+        ("x.com/janedoe", SOCIAL),
+        ("https://twitter.com/janedoe", SOCIAL),
+        ("https://www.threads.net/@jane", SOCIAL),
+        ("https://www.youtube.com/@gracechurch", VIDEOS),
+        ("https://youtube.com/playlist?list=1", VIDEOS),
+        ("https://youtu.be/abc", VIDEOS),
+        ("https://vimeo.com/123", VIDEOS),
+        ("https://www.facebook.com/gracechurch/videos/123", VIDEOS),
+        ("https://www.facebook.com/reel/123", VIDEOS),
+        ("https://www.facebook.com/watch/?v=1", VIDEOS),
+        ("https://fb.watch/abc", VIDEOS),
+        ("https://open.spotify.com/show/1", OTHER),
+        ("https://gracechurch.org/sermons/easter", OTHER),
+        ("https://fox.com/news", OTHER),  # not x.com
+        ("https://janedoe.dev", OTHER),
+        ("GitHub", OTHER),
+        ("[::1", OTHER),  # urlsplit raises ValueError
+    ],
+)
+def test_group_links_puts_each_link_in_its_group(link: str, label: str) -> None:
+    assert group_links([link]) == [(label, [link])]
+
+
+def test_group_links_orders_groups_strips_and_drops_duplicates() -> None:
+    links = [
+        "https://janedoe.dev",
+        " https://youtu.be/a ",
+        "https://linkedin.com/in/j",
+        "https://youtu.be/a",
+    ]
+
+    assert group_links(links) == [
+        (SOCIAL, ["https://linkedin.com/in/j"]),
+        (VIDEOS, ["https://youtu.be/a"]),
+        (OTHER, ["https://janedoe.dev"]),
+    ]
+    assert group_links([]) == []
+
+
+def test_summary_is_shown_above_the_years() -> None:
+    html = build_resume_html(FAKE_RESUME_DATA, TODAY)
+
+    assert '<p class="summary">Software engineer who builds APIs.</p>' in html
+    assert html.index('class="summary"') < html.index("WORK EXPERIENCE IN YEARS")
+
+
+def test_summary_alone_shows_the_section_and_nothing_hides_it() -> None:
+    with_summary = build_resume_html(MINIMAL_DATA.model_copy(update={"summary": "Pastor."}), TODAY)
+    without = build_resume_html(MINIMAL_DATA, TODAY)
+
+    assert "Professional Summary" in with_summary
+    assert "WORK EXPERIENCE IN YEARS" not in with_summary
+    assert "Professional Summary" not in without
+
+
+def test_summary_is_escaped() -> None:
+    data = MINIMAL_DATA.model_copy(update={"summary": MARKUP_PAYLOAD})
+
+    html = build_resume_html(data, TODAY)
+
+    assert "&lt;script&gt;" in html
+    assert "<script" not in html
+
+
+@pytest.mark.parametrize(
+    ("start", "chips"),
+    [("Jan 2020", ["Jan 2020", "Present"]), (None, ["Present"])],
+    ids=["with-start", "no-start"],
+)
+def test_a_current_job_shows_present_whatever_was_written(
+    start: str | None, chips: list[str]
+) -> None:
+    data = MINIMAL_DATA.model_copy(update={"experience": [job("Pastor", start, "Current")]})
+
+    html = build_resume_html(data, TODAY)
+
+    assert re.findall(r'<span class="chip[^"]*">([^<]*)</span>', html) == chips
+    assert '<span class="chip chip-current">Present</span>' in html
+    assert "Current<" not in html
+
+
+def test_jobs_are_shown_in_order_and_the_phone_is_formatted() -> None:
+    jobs = [job("Old", "2010", "2012"), job("Now", "2018", "Present")]
+    data = MINIMAL_DATA.model_copy(update={"experience": jobs, "phone": "+1 555.010.0100"})
+
+    html = build_resume_html(data, TODAY)
+
+    assert html.index(">Now<") < html.index(">Old<")
+    assert ">(555) 010-0100<" in html
+
+
+def test_links_show_under_their_group_labels() -> None:
+    links = ["https://linkedin.com/in/j", "https://youtu.be/a", "https://janedoe.dev"]
+
+    html = build_resume_html(MINIMAL_DATA.model_copy(update={"links": links}), TODAY)
+
+    labels = re.findall(r'<p class="label">([^<]*)</p>', html)
+    assert labels[-3:] == ["Social Media", "Teaching &amp; Worship Videos", "Other Links"]
+    assert "LINK 1" not in html
+
+
+def test_inferred_skills_follow_the_listed_skills_unmarked() -> None:
+    inferred = [InferredSkill(name="Preaching", evidence="preached weekly sermons")]
+    data = MINIMAL_DATA.model_copy(update={"skills": ["Python"], "inferred_skills": inferred})
+
+    html = build_resume_html(data, TODAY)
+
+    assert re.findall(r'<li class="pill">([^<]*)</li>', html) == ["Python", "Preaching"]
+    assert "preached weekly sermons" not in html
+
+
+def test_an_old_row_without_the_new_fields_renders() -> None:
+    stored = FAKE_RESUME_DATA.model_dump(exclude={"summary", "inferred_skills"})
+
+    html = build_resume_html(ResumeData.model_validate(stored), TODAY)
+
+    assert "Professional Summary" in html  # from the years alone
+    assert 'class="summary"' not in html
+    # The project's technology, then the listed skills; no inferred ones.
+    assert re.findall(r'<li class="pill">([^<]*)</li>', html) == ["FastAPI", "Python", "SQL"]
 
 
 def test_playwright_failure_becomes_pdf_render_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -417,8 +638,10 @@ def test_real_render_has_a_header_and_footer_on_every_page() -> None:
     ]
     # A 100-character unbroken title must wrap (an overflow makes Chrome shrink every page), and
     # a first job longer than a page must start on page 1 (its title with its first bullet).
-    jobs[0] = jobs[0].model_copy(
+    # Listed last but current, so order_experience puts it first.
+    jobs[-1] = jobs[-1].model_copy(
         update={
+            "end_date": "Current",
             "title": ("abcdefghijklmnopqrstuvwxyz" * 4)[:100],
             "description": "\n".join(f"• Long first job line {line}" for line in range(40)),
         }
@@ -437,6 +660,7 @@ def test_real_render_has_a_header_and_footer_on_every_page() -> None:
         page_one_text = document[0].get_textpage().get_text_range()
         assert "Jane Doe" in page_one_text
         assert "Long first job line 0" in page_one_text
+        assert "Present" in page_one_text  # the current role, ordered first
         # The right-aligned date chips end near the content edge (595.92 pt - 13.2 mm): not
         # beyond it (overflow), and not far inside it (a shrunken page).
         right_edges = [
@@ -458,3 +682,216 @@ def test_real_render_has_a_header_and_footer_on_every_page() -> None:
         assert fonts and all("Inter" in font for font in fonts)
     finally:
         document.close()
+
+
+# --- edge cases (QA pass) ---
+
+
+@pytest.mark.parametrize(
+    ("end_date", "expected"),
+    [
+        ("present ", True),
+        ("PRESENT", True),
+        ("Current role", True),
+        ("2020 –", False),  # an open range is the AI's job to turn into "Present"
+        ("expected 2027", False),
+        ("", False),
+        ("Nowhere", False),
+    ],
+)
+def test_is_current_with_odd_end_dates(end_date: str, expected: bool) -> None:
+    assert is_current(job("Pastor", "2019", end_date)) is expected
+
+
+@pytest.mark.parametrize("text", ["present ", "Current role"])
+def test_read_date_reads_ongoing_words_with_extra_text_as_today(text: str) -> None:
+    assert read_date(text, TODAY) == (2026, 10)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("2020 –", (2020, None)), ("expected 2027", (2027, None))],
+)
+def test_read_date_reads_the_year_of_an_open_range_or_expected_date(
+    text: str, expected: tuple[int, int | None]
+) -> None:
+    assert read_date(text, TODAY) == expected
+
+
+@pytest.mark.parametrize(
+    ("jobs", "expected"),
+    [
+        pytest.param(
+            [job("A", "2020", "Present"), job("B", "2020", "Present"), job("C", "2020", "Current")],
+            ["A", "B", "C"],
+            id="identical-current-jobs-keep-cv-order",
+        ),
+        pytest.param(
+            [job("Year", "2020", "Present"), job("Month", "Jan 2020", "Present")],
+            ["Month", "Year"],
+            id="current-month-start-before-year-only-start",
+        ),
+        pytest.param(
+            [job("A", "2015", "2015"), job("B", "2015", "2015")],
+            ["A", "B"],
+            id="identical-past-jobs-keep-cv-order",
+        ),
+        pytest.param(
+            [job("Past", "2010", "2012"), job("Future", "2031", "Present")],
+            ["Future", "Past"],
+            id="future-start-that-is-current-is-still-on-top",
+        ),
+        pytest.param(
+            [job("Open", "2018", None), job("Ended", "2010", "2012"), job("None", None, None)],
+            ["Open", "Ended", "None"],
+            id="no-end-uses-the-start-and-undated-is-last",
+        ),
+        pytest.param([], [], id="empty"),
+    ],
+)
+def test_order_experience_ties_and_gaps(jobs: list[Experience], expected: list[str]) -> None:
+    assert [entry.title for entry in order_experience(jobs, TODAY)] == expected
+
+
+def test_order_experience_returns_a_new_list_and_leaves_the_input_alone() -> None:
+    jobs = [job("Old", "2010", "2012"), job("New", "2020", "Present")]
+
+    ordered = order_experience(jobs, TODAY)
+
+    assert [entry.title for entry in jobs] == ["Old", "New"]
+    assert ordered is not jobs
+
+
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "+44 7911 123456",
+        "00 1 555 010 0100",
+        "5550100100 5",
+        "555-010-0100 ext 5",
+        "(555) 010-0100 / (555) 010-0101",
+        "555 010 0100 555 010 0101",
+        "25550100100",
+        "",
+    ],
+)
+def test_format_phone_leaves_other_numbers_as_written(phone: str) -> None:
+    assert format_phone(phone) == phone
+
+
+@pytest.mark.parametrize(
+    ("phone", "expected"),
+    [
+        ("+1 (555) 010-0100 ", "(555) 010-0100"),
+        ("\n555.010.0100", "(555) 010-0100"),
+        ("11234567890", "(123) 456-7890"),
+    ],
+)
+def test_format_phone_formats_stray_whitespace_and_a_leading_1(phone: str, expected: str) -> None:
+    assert format_phone(phone) == expected
+
+
+def test_format_phone_never_raises_on_non_ascii_digits() -> None:
+    assert isinstance(format_phone("٥٥٥٠١٠٠١٠٠"), str)
+
+
+def test_format_phone_leaves_a_ten_digit_number_from_another_country_as_written() -> None:
+    """The docstring says another country's number stays as written; +45 numbers have 8 digits
+    after the country code, so 10 digits in total."""
+    assert format_phone("+45 12 34 56 78") == "+45 12 34 56 78"
+
+
+@pytest.mark.parametrize(
+    ("link", "label"),
+    [
+        ("HTTPS://WWW.LINKEDIN.COM/in/x", SOCIAL),
+        ("LinkedIn.com/in/x", SOCIAL),
+        ("m.facebook.com/watch", VIDEOS),
+        ("https://mobile.facebook.com/reel/1", VIDEOS),
+        ("youtu.be/x", VIDEOS),
+        ("fb.watch/x", VIDEOS),
+        ("https://facebook.com/watch", VIDEOS),
+        ("https://facebook.com/Watch/", VIDEOS),
+        ("https://facebook.com/watchdogs", SOCIAL),
+        ("https://www.facebook.com/videos/123", VIDEOS),
+        ("https://www.facebook.com/video.php?v=123", VIDEOS),
+        ("https://www.facebook.com/share/v/abc/", VIDEOS),
+        ("https://www.facebook.com/share/r/abc/", VIDEOS),
+        ("https://www.facebook.com/share/p/abc/", SOCIAL),  # a shared post
+        ("https://www.facebook.com/videosbyjane", SOCIAL),
+        ("https://YOUTUBE.COM:443/x", VIDEOS),
+        ("https://music.youtube.com/x", VIDEOS),
+        ("javascript:alert(1)", OTHER),
+        ("data:text/html,<script>", OTHER),
+        ("http://", OTHER),
+        ("https://notyoutube.com", OTHER),
+        ("https://youtube.com.evil.com", OTHER),
+        ("https://evil.com/?u=youtube.com", OTHER),
+        ("https://youtube.com@evil.com", OTHER),
+        ("https://x.com.evil.com", OTHER),
+        ("https://box.com", OTHER),
+        ("https://max.com", OTHER),
+        ("https://faceb00k.com", OTHER),
+    ],
+)
+def test_group_links_edge_cases_and_lookalike_hosts(link: str, label: str) -> None:
+    assert group_links([link]) == [(label, [link])]
+
+
+def test_group_links_does_not_raise_on_any_odd_value() -> None:
+    odd = ["", "   ", "[::1", "https://[::1", "//youtube.com/x", "\x00", "https://" + "a" * 5000]
+
+    assert group_links(odd)  # every one lands somewhere
+
+
+@pytest.mark.parametrize("link", ["javascript:alert(1)", "javascript://youtube.com/%0aalert(1)"])
+def test_a_javascript_link_is_shown_as_text_never_as_an_href(link: str) -> None:
+    data = MINIMAL_DATA.model_copy(update={"links": [link, "https://youtu.be/a"]})
+
+    html = build_resume_html(data, TODAY)
+
+    assert re.findall(r'href="([^"]*)"', html) == ["https://youtu.be/a"]
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "</p><script>alert(1)</script>",
+        '"><img src=x onerror=alert(1)>',
+        "{{ 7*7 }} {% if 1 %}x{% endif %}",
+        "&lt;b&gt; &amp;",
+    ],
+)
+def test_a_hostile_summary_is_inert_in_the_html(summary: str) -> None:
+    data = MINIMAL_DATA.model_copy(update={"summary": summary})
+    normal_tags, normal_attributes = collect_markup(build_resume_html(FAKE_RESUME_DATA, TODAY))
+
+    html = build_resume_html(data, TODAY)
+
+    tags, attributes = collect_markup(html)
+    assert tags <= normal_tags
+    assert attributes <= normal_attributes
+    shown = re.search(r'<p class="summary">(.*?)</p>', html, re.DOTALL)
+    assert shown is not None
+    assert "49" not in shown.group(1)  # "{{ 7*7 }}" is data, never evaluated
+
+
+def test_a_hostile_inferred_skill_name_and_phone_are_inert() -> None:
+    inferred = [InferredSkill(name=MARKUP_PAYLOAD, evidence="x")]
+    data = MINIMAL_DATA.model_copy(update={"inferred_skills": inferred, "phone": MARKUP_PAYLOAD})
+    normal_tags, normal_attributes = collect_markup(build_resume_html(FAKE_RESUME_DATA, TODAY))
+
+    tags, attributes = collect_markup(build_resume_html(data, TODAY))
+
+    assert tags <= normal_tags
+    assert attributes <= normal_attributes
+
+
+def test_a_row_with_unknown_extra_keys_renders() -> None:
+    stored = {**FAKE_RESUME_DATA.model_dump(), "future_field": {"a": 1}}
+    stored["experience"][0]["bonus"] = "x"
+
+    html = build_resume_html(ResumeData.model_validate(stored), TODAY)
+
+    assert "future_field" not in html
+    assert "bonus" not in html

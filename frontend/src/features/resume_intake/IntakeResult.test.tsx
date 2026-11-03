@@ -14,8 +14,10 @@ const RESULT: ResumeIntake = {
     email: 'jane.doe@example.com',
     phone: null,
     location: null,
+    summary: null,
     links: [],
     skills: ['Python'],
+    inferred_skills: [],
     experience: [
       {
         company: 'Acme Corp',

@@ -1,23 +1,66 @@
 """Tests for the resume_structuring schemas, which are also OpenAI's strict output schema."""
 
+from typing import Any
+
 import pytest
-from pydantic import BaseModel, ValidationError
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import ValidationError
 
-from app.features.resume_structuring.schemas import (
-    Certificate,
-    Education,
-    Experience,
-    Project,
-    ResumeData,
-)
+from app.features.resume_structuring.schemas import ResumeData
 
 
-@pytest.mark.parametrize("model", [Experience, Education, Project, Certificate, ResumeData])
-def test_every_field_is_required_with_no_default(model: type[BaseModel]) -> None:
-    """OpenAI strict mode needs every property required; "missing" is null or an empty list."""
-    optional = [name for name, field in model.model_fields.items() if not field.is_required()]
+def object_schemas(schema: Any) -> list[dict[str, Any]]:
+    """Every JSON-schema object (a dict with "properties") anywhere inside `schema`."""
+    if isinstance(schema, list):
+        return [found for item in schema for found in object_schemas(item)]
+    if not isinstance(schema, dict):
+        return []
+    found = [schema] if "properties" in schema else []
+    return found + [found for value in schema.values() for found in object_schemas(value)]
 
-    assert optional == []
+
+def keys_anywhere(schema: Any) -> set[str]:
+    """Every dict key anywhere inside `schema` (not the text of descriptions)."""
+    if isinstance(schema, list):
+        return {key for item in schema for key in keys_anywhere(item)}
+    if not isinstance(schema, dict):
+        return set()
+    return set(schema) | {key for value in schema.values() for key in keys_anywhere(value)}
+
+
+def test_the_strict_schema_sent_to_openai_has_no_default_and_requires_every_property() -> None:
+    """Strict mode needs every property required. summary and inferred_skills default only for
+    old stored rows; the SDK must keep them required and drop the default, or OpenAI rejects it.
+    """
+    schema = to_strict_json_schema(ResumeData)
+    objects = object_schemas(schema)
+
+    assert "default" not in keys_anywhere(schema)
+    # ResumeData, InferredSkill, Experience, Education, Project and Certificate.
+    assert len(objects) == 6
+    for found in objects:
+        assert sorted(found["required"]) == sorted(found["properties"])
+        assert found["additionalProperties"] is False
+
+
+def test_an_old_row_without_the_new_fields_still_validates() -> None:
+    data = ResumeData.model_validate(
+        {
+            "name": "Jane Doe",
+            "email": "jane.doe@example.com",
+            "phone": None,
+            "location": None,
+            "links": [],
+            "skills": [],
+            "experience": [],
+            "education": [],
+            "projects": [],
+            "certificates": [],
+        }
+    )
+
+    assert data.summary is None
+    assert data.inferred_skills == []
 
 
 def test_a_cv_with_nothing_but_the_required_values_is_valid() -> None:

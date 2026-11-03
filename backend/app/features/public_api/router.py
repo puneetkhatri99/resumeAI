@@ -1,7 +1,8 @@
 """Public API for outside systems (e.g. Loxo), behind the X-API-Key header:
 POST a resume under the caller's own candidate and resume ids and get the AI-extracted details
 back as JSON; GET the branded MinistryHub PDF for a stored pair; or POST a resume and get its
-branded PDF straight back (it is also saved as a candidate, source "api").
+branded PDF's permanent public URL and its details (it is also saved as a candidate, source
+"api").
 """
 
 import logging
@@ -35,9 +36,10 @@ from app.features.ai_usage.service import (
 from app.features.candidates.service import (
     FileStorageError,
     pdf_content_disposition,
+    public_url,
     store_candidate,
 )
-from app.features.public_api.schemas import PublicId, PublicResumeResponse
+from app.features.public_api.schemas import PublicId, PublicPdfResponse, PublicResumeResponse
 from app.features.public_api.service import get_public_resume, save_public_resume
 from app.features.resume_generation.service import PdfRenderError, build_resume_html, render_pdf
 from app.features.resume_intake.service import (
@@ -156,15 +158,15 @@ def read_public_resume_pdf(
 
 
 # Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
-@router.post("/pdf", dependencies=[Depends(require_ai_budget)])
+@router.post("/pdf", response_model=PublicPdfResponse, dependencies=[Depends(require_ai_budget)])
 def create_pdf(
     file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
     template_id: Annotated[int, Form()] = MINISTRYHUB_TEMPLATE_ID,
-) -> Response:
+) -> PublicPdfResponse:
     """Read the CV, have AI extract its details, render the branded PDF for `template_id` (only
     1, MinistryHub), save it as a candidate (source "api") with both files stored, and return
-    the PDF (200, inline `application/pdf`).
+    JSON (200) with the PDF's permanent public URL and the extracted details.
 
     401 bad key; 402 spending cap; 404 unknown template (before any AI call); 415 not a PDF,
     DOCX, DOC or TXT; 422 invalid form or unusable CV text; 500 Chromium failed; 502 an AI call
@@ -181,7 +183,9 @@ def create_pdf(
         file_type, text, read_by_ocr = extract_text(data, ai_calls)
         _, resume = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
         pdf = render_pdf(build_resume_html(resume, date.today()))
-        store_candidate(db, data, file_type, pdf, resume.name, "api", ai_calls)
+        candidate = store_candidate(db, data, file_type, pdf, resume.name, "api", ai_calls)
+        # Read inside the try: after the commit, reading the key reloads the row.
+        url = public_url(candidate.resume_key)
     except CV_ERRORS as exc:
         status_code, detail = cv_error_status(exc), str(exc)
     except FileStorageError as exc:
@@ -193,7 +197,7 @@ def create_pdf(
         logger.exception("Could not store the candidate: database error")
         status_code, detail = status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE
     else:
-        return pdf_response(pdf, resume.name)
+        return PublicPdfResponse(url=url, data=resume)
     save_ai_calls_without_intake(db, ai_calls)
     raise HTTPException(status_code, detail)
 

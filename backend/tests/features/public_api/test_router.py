@@ -3,6 +3,7 @@ storage by fake_s3 and render_pdf by FakeRenderer, so no test calls OpenAI, Neon
 Every request that can store something goes through db_session and is rolled back.
 """
 
+import json
 from decimal import Decimal
 
 import httpx2
@@ -17,12 +18,13 @@ from app.core.config import settings
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.service import AI_SPEND_CAP_MESSAGE
 from app.features.candidates.models import Candidate
-from app.features.candidates.service import STORE_FAILED_MESSAGE
+from app.features.candidates.service import STORE_FAILED_MESSAGE, public_url
 from app.features.public_api import router
 from app.features.public_api.models import PublicResume
 from app.features.public_api.router import INVALID_KEY_MESSAGE
 from app.features.resume_generation.service import PdfRenderError
 from app.features.resume_intake.service import UNSUPPORTED_TYPE_MESSAGE
+from app.features.resume_structuring.schemas import InferredSkill
 from app.features.resume_structuring.service import AI_FAILED_MESSAGE, MISSING_CONTACT_MESSAGE
 from tests.conftest import FAKE_CALL_COST, FAKE_RESUME_DATA, FakeOpenAI, FakeS3
 
@@ -251,6 +253,17 @@ def test_the_pdf_of_a_stored_pair_is_returned_inline_and_not_cached(
     assert "Jane Doe" in fake_renderer.pages[0]
 
 
+def test_the_pdf_of_a_pair_stored_before_the_new_fields_is_returned(
+    client: TestClient, db_session: Session
+) -> None:
+    """Old rows have no summary or inferred_skills keys; the model defaults fill them in."""
+    stored = FAKE_RESUME_DATA.model_dump(exclude={"summary", "inferred_skills"})
+    db_session.add(PublicResume(**IDS, structured_data=stored))
+    db_session.flush()
+
+    assert client.get(PDF_URL, headers=HEADERS).status_code == 200
+
+
 def test_template_id_defaults_to_1(client: TestClient, db_session: Session) -> None:
     client.post(URL, headers=HEADERS, data=IDS, files={"file": TXT_CV})
 
@@ -291,7 +304,7 @@ def max_candidate_id(db_session: Session) -> int:
     return db_session.scalar(select(func.coalesce(func.max(Candidate.id), 0)))
 
 
-def test_a_cv_comes_back_as_the_branded_pdf_and_is_saved_as_an_api_candidate(
+def test_a_cv_comes_back_as_the_pdf_url_and_data_and_is_saved_as_an_api_candidate(
     client: TestClient, db_session: Session, fake_s3: FakeS3
 ) -> None:
     last_candidate = max_candidate_id(db_session)
@@ -300,13 +313,14 @@ def test_a_cv_comes_back_as_the_branded_pdf_and_is_saved_as_an_api_candidate(
     response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
 
     assert response.status_code == 200
-    assert response.content == FAKE_PDF
-    assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["content-disposition"] == (
-        "inline; filename*=UTF-8''MinistryHub%20-%20Jane%20Doe.pdf"
-    )
-    assert response.headers["cache-control"] == "no-store"
     [candidate] = candidates_after(db_session, last_candidate)
+    assert response.json() == {
+        "url": public_url(candidate.resume_key),
+        "data": json.loads(FAKE_RESUME_DATA.model_dump_json()),
+    }
+    assert response.json()["url"].endswith(
+        f"/{settings.public_resume_bucket}/{candidate.resume_key}"
+    )
     assert (candidate.name, candidate.source, candidate.file_type) == ("Jane Doe", "api", "txt")
     assert candidate.ai_cost_usd == FAKE_CALL_COST
     assert (
@@ -465,3 +479,42 @@ def test_a_request_over_10_mb_on_the_pdf_endpoint_is_413(
 
     assert response.status_code == 413
     assert fake_openai.calls == []
+
+
+def test_the_pdf_of_a_pair_with_unknown_extra_keys_is_returned(
+    client: TestClient, db_session: Session
+) -> None:
+    stored = {**FAKE_RESUME_DATA.model_dump(), "future_field": "x"}
+    db_session.add(PublicResume(**IDS, structured_data=stored))
+    db_session.flush()
+
+    assert client.get(PDF_URL, headers=HEADERS).status_code == 200
+
+
+def test_a_stored_hostile_summary_is_escaped_in_the_public_pdf_page(
+    client: TestClient, db_session: Session, fake_renderer: FakeRenderer
+) -> None:
+    stored = {**FAKE_RESUME_DATA.model_dump(), "summary": "<img src=x onerror=alert(1)>"}
+    db_session.add(PublicResume(**IDS, structured_data=stored))
+    db_session.flush()
+
+    assert client.get(PDF_URL, headers=HEADERS).status_code == 200
+    assert "<img src=x" not in fake_renderer.pages[0]
+
+
+def test_the_extraction_json_carries_the_summary_and_the_proven_inferred_skills(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI
+) -> None:
+    unproven = InferredSkill(name="Kubernetes", evidence="never written in this CV")
+    fake_openai.result = FAKE_RESUME_DATA.model_copy(
+        update={"inferred_skills": [*FAKE_RESUME_DATA.inferred_skills, unproven]}
+    )
+
+    response = client.post(URL, headers=HEADERS, data=IDS, files={"file": TXT_CV})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["summary"] == FAKE_RESUME_DATA.summary
+    assert [skill["name"] for skill in data["inferred_skills"]] == [
+        skill.name for skill in FAKE_RESUME_DATA.inferred_skills
+    ]

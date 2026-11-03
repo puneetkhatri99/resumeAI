@@ -846,6 +846,24 @@ def add_intake(db_session: Session, name: str | None) -> ResumeIntake:
     return intake
 
 
+def test_a_row_stored_before_the_new_fields_reads_with_them_empty(
+    client: TestClient, db_session: Session
+) -> None:
+    intake = add_intake(db_session, "Ann Lee")
+    intake.structured_data = {
+        key: value
+        for key, value in intake.structured_data.items()
+        if key not in ("summary", "inferred_skills")
+    }
+    db_session.flush()
+
+    response = client.get(f"{URL}/{intake.id}")
+
+    assert response.status_code == 200
+    data = response.json()["structured_data"]
+    assert (data["summary"], data["inferred_skills"]) == (None, [])
+
+
 def test_list_is_newest_first_and_pages_by_id(client: TestClient, db_session: Session) -> None:
     """Rows already in the dev database are older (smaller ids), so they never come first."""
     old = add_intake(db_session, None)
@@ -1030,3 +1048,16 @@ def test_the_database_down_during_the_spending_cap_check_is_503(
     assert response.status_code == 503
     assert response.json() == {"detail": DATABASE_DOWN_MESSAGE}
     assert fake_openai.calls == []
+
+
+def test_a_row_with_unknown_extra_keys_in_structured_data_reads(
+    client: TestClient, db_session: Session
+) -> None:
+    intake = add_intake(db_session, "Ann Lee")
+    intake.structured_data = {**intake.structured_data, "future_field": "x"}
+    db_session.flush()
+
+    response = client.get(f"{URL}/{intake.id}")
+
+    assert response.status_code == 200
+    assert response.json()["structured_data"]["name"] == "Ann Lee"

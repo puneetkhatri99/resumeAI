@@ -75,7 +75,7 @@ The steps run in this order:
 6. `template_id != 1` gives 404, **before any AI call**.
 7. Read, AI and render as in 3.1.
 8. `store_candidate(..., source="api")`.
-9. **200** with the PDF bytes.
+9. **200** with the PDF bytes. (Changed by the user on 2026-11-03: now JSON `{url, data}`, the PDF's public link and the extracted data; see `public_api/README.md`.)
 
 If storage fails, the caller gets 502 and no PDF.
 

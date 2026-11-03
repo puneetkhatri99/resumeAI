@@ -3,7 +3,8 @@
   The branded MinistryHub resume page, printed to A4 by Chromium (service.render_pdf).
   The header and footer images aren't here: they are page.pdf's header/footer templates.
   AI values go only into text nodes and quoted href attributes, never into <style>, style=""
-  or an unquoted attribute, so autoescape covers every one. Icons are Lucide (ISC licence,
+  or an unquoted attribute, so autoescape covers every one. The only `| safe` is the link-group
+  icons' static SVG paths, written in this file (never AI text). Icons are Lucide (ISC licence,
   assets/LUCIDE-LICENSE.txt); the font is Inter (SIL OFL, assets/OFL.txt).
 #}
 <html lang="en">
@@ -23,7 +24,7 @@
   --yellow: #ffc200;
   --navy: #13293d;
   --tile-navy: #0b3954;
-  --green: #089a79;
+  --rule: #e3e8ee;
   --muted: #4e5f6e;
   --tint: #eef1f7;
   --pill: #f8fbff;
@@ -60,37 +61,64 @@ svg {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* Yellow never carries text (about 1.6:1 on white): it is only bars, blocks, rules and fills. */
 .name {
   padding: 6pt 0 14pt;
-  font-size: 22.5pt;
+  font-size: 24pt;
   font-weight: 600;
   line-height: 1.2;
-  color: var(--yellow);
+}
+.name::after {
+  content: "";
+  display: block;
+  width: 36pt;
+  height: 3pt;
+  margin-top: 8pt;
+  background: var(--yellow);
 }
 .section {
   padding: 15pt 0 17pt;
-  border-top: 1pt solid var(--yellow);
+  border-top: 0.75pt solid var(--rule);
 }
 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 7pt;
   margin-bottom: 12pt;
-  font-size: 13.5pt;
+  font-size: 11pt;
   font-weight: 600;
   line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   break-after: avoid;
+}
+.section-title::before {
+  content: "";
+  flex: none;
+  width: 4pt;
+  height: 11pt;
+  background: var(--yellow);
 }
 .subsection-title {
   display: flex;
   align-items: center;
   gap: 8pt;
   margin-bottom: 14pt;
-  font-size: 10.5pt;
+  font-size: 10pt;
   font-weight: 600;
   break-after: avoid;
 }
 .subsection-title::after {
   content: "";
   flex: 1;
-  border-top: 1pt solid var(--green);
+  border-top: 1pt solid var(--yellow);
+}
+.summary {
+  margin-bottom: 14pt;
+  padding: 2pt 0 2pt 10pt;
+  border-left: 3pt solid var(--yellow);
+  font-size: 9.5pt;
+  line-height: 1.6;
 }
 .entry + .subsection-title {
   margin-top: 22pt;
@@ -162,12 +190,16 @@ svg {
   min-width: 0;
 }
 .entry-title {
+  font-size: 10pt;
   font-weight: 600;
 }
 .entry-subtitle {
-  font-size: 7.5pt;
+  font-size: 8.5pt;
   font-weight: 500;
   overflow-wrap: anywhere;
+}
+.muted {
+  color: var(--muted);
 }
 .dates {
   flex: none;
@@ -185,12 +217,18 @@ svg {
   font-size: 8.25pt;
   font-weight: 500;
 }
+.chip-current {
+  background: var(--yellow);
+}
 .bullets {
   margin-top: 7pt;
   padding-left: 10pt;
 }
 .bullets li + li {
   margin-top: 3pt;
+}
+.bullets li::marker {
+  color: var(--yellow);
 }
 .pills {
   display: flex;
@@ -223,10 +261,10 @@ svg {
       <div><p class="label">Email</p><p class="value">{{ data.email }}</p></div>
     </div>
     {% endif %}
-    {% if data.phone %}
+    {% if phone %}
     <div class="fact">
       <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></svg></span>
-      <div><p class="label">Phone number</p><p class="value">{{ data.phone }}</p></div>
+      <div><p class="label">Phone number</p><p class="value">{{ phone }}</p></div>
     </div>
     {% endif %}
     {% if data.location %}
@@ -238,13 +276,16 @@ svg {
   </div>
 </section>
 
-{% if total_years %}
+{% if data.summary or total_years %}
 <section class="section">
   <h2 class="section-title">Professional Summary</h2>
+  {% if data.summary %}<p class="summary">{{ data.summary }}</p>{% endif %}
+  {% if total_years %}
   <div class="fact">
     <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 22h5a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.3"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m7.69 16.479 1.29 4.88a.5.5 0 0 1-.698.591l-1.843-.849a1 1 0 0 0-.879.001l-1.846.85a.5.5 0 0 1-.692-.593l1.29-4.88"/><circle cx="6" cy="14" r="3"/></svg></span>
     <div><p class="label">WORK EXPERIENCE IN YEARS</p><p class="value">{{ total_years }}</p></div>
   </div>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -257,7 +298,7 @@ svg {
 
   {% if data.experience %}
   <h3 class="subsection-title">Employment History</h3>
-  {% for job in data.experience %}
+  {% for job in experience %}
   {% set duration = format_duration(job.start_date, job.end_date, today) %}
   {% set lines = job.description | bullets %}
   <div class="entry">
@@ -266,13 +307,14 @@ svg {
       <div class="entry-head">
         <div>
           {% if job.title %}<p class="entry-title">{{ job.title }}</p>{% endif %}
-          {% if job.company or job.location %}<p class="entry-subtitle">{{ [job.company, job.location] | select | join(" | ") }}</p>{% endif %}
+          {% if job.company or job.location %}<p class="entry-subtitle">{{ job.company or "" }}{% if job.location %}<span class="muted">{% if job.company %} · {% endif %}{{ job.location }}</span>{% endif %}</p>{% endif %}
         </div>
         <div class="dates">
           {% if duration %}<span>{{ duration }}</span>{% endif %}
           {% if job.start_date %}<span class="chip">{{ job.start_date }}</span>{% endif %}
           {% if job.start_date and job.end_date %}<span>-</span>{% endif %}
-          {% if job.end_date %}<span class="chip">{{ job.end_date }}</span>{% endif %}
+          {% if job is current %}<span class="chip chip-current">Present</span>
+          {% elif job.end_date %}<span class="chip">{{ job.end_date }}</span>{% endif %}
         </div>
       </div>
       {% if lines %}
@@ -288,7 +330,6 @@ svg {
   {% if data.education %}
   <h3 class="subsection-title">Education</h3>
   {% for school in data.education %}
-  {% set chip = school.end_date or school.start_date %}
   <div class="entry">
     <span class="tile tile-navy"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg></span>
     <div class="entry-body">
@@ -297,7 +338,7 @@ svg {
           {% if school.institution %}<p class="entry-title">{{ school.institution }}</p>{% endif %}
           {% if school.degree or school.field_of_study %}<p class="entry-subtitle">{{ [school.degree, school.field_of_study] | select | join(", ") }}</p>{% endif %}
         </div>
-        {% if chip %}<div class="dates"><span class="chip">{{ chip }}</span></div>{% endif %}
+        {% if school.end_date %}<div class="dates"><span class="chip">{% if school is current %}In progress{% else %}{{ school.end_date }}{% endif %}</span></div>{% endif %}
       </div>
     </div>
   </div>
@@ -354,28 +395,35 @@ svg {
 </section>
 {% endif %}
 
-{% if data.skills %}
+{% if skills %}
 <section class="section">
   <h2 class="section-title">Skills</h2>
   <div class="fact">
     <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></span>
     <ul class="pills">
-      {% for skill in data.skills %}<li class="pill">{{ skill }}</li>{% endfor %}
+      {% for skill in skills %}<li class="pill">{{ skill }}</li>{% endfor %}
     </ul>
   </div>
 </section>
 {% endif %}
 
-{% if data.links %}
+{% if link_groups %}
+{% set link_icons = {
+  "Social Media": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/>',
+  "Teaching & Worship Videos": '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  "Other Links": '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+} %}
 <section class="section">
   <h2 class="section-title">Additional Information</h2>
   <div class="facts">
-    {% for link in data.links %}
+    {% for label, links in link_groups %}
     <div class="fact">
-      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+      <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true">{{ link_icons[label] | safe }}</svg></span>
       <div>
-        <p class="label">LINK {{ loop.index }}</p>
+        <p class="label">{{ label }}</p>
+        {% for link in links %}
         <p class="value">{% if link is http_url %}<a href="{{ link }}">{{ link }}</a>{% else %}{{ link }}{% endif %}</p>
+        {% endfor %}
       </div>
     </div>
     {% endfor %}

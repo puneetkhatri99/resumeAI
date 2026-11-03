@@ -11,8 +11,13 @@ export type ResumeData = {
   phone: string | null
   /** The candidate's current location, as written in the CV. */
   location: string | null
+  /** The CV's own summary as written, or 2–3 sentences the AI wrote from the CV's facts. Absent on old fixtures. */
+  summary?: string | null
   links: string[]
+  /** The skills the CV lists. */
   skills: string[]
+  /** Skills the CV shows the candidate used but doesn't list, each with a quote from the CV. Absent on old fixtures. */
+  inferred_skills?: { name: string; evidence: string }[]
   experience: {
     company: string | null
     title: string | null
@@ -63,15 +68,17 @@ function linkOrText(url: string | null): ReactNode {
 
 /**
  * Shows extracted CV details as two cards: the candidate (name, email, phone, location, under a "Contact" heading for screen
- * readers) and headed sections: Links, Skills (as chips), Experience, Education, Projects and Certificates, each
- * with its own colour and icon. Empty sections and null fields are left out. Only http(s) links are clickable
+ * readers) and headed sections: Summary, Links, Skills (as chips, the listed ones then the inferred ones, unmarked),
+ * Experience, Education, Projects and Certificates, each with its own colour and icon. Empty sections and null fields are left out. Only http(s) links are clickable
  * (they open in a new tab), because they come from AI output.
  */
 export function StructuredResume({ data }: StructuredResumeProps) {
+  const skills = [...data.skills, ...(data.inferred_skills ?? []).map((skill) => skill.name)]
   // Each section is a list of entries, and each entry is a list of lines.
   const sections: [string, ReactNode[][]][] = [
+    ['Summary', data.summary ? [[data.summary]] : []],
     ['Links', data.links.map((link) => [linkOrText(link)])],
-    ['Skills', data.skills.length > 0 ? [[data.skills.join(', ')]] : []],
+    ['Skills', skills.length > 0 ? [[skills.join(', ')]] : []],
     [
       'Experience',
       data.experience.map((job) => [
@@ -154,7 +161,7 @@ export function StructuredResume({ data }: StructuredResumeProps) {
               </div>
               {title === 'Skills' ? (
                 <ul className="skill-chips">
-                  {data.skills.map((skill, index) => (
+                  {skills.map((skill, index) => (
                     <li key={index}>{skill}</li>
                   ))}
                 </ul>
@@ -179,6 +186,7 @@ export function StructuredResume({ data }: StructuredResumeProps) {
 
 // Each section's colour and icon on the result screen.
 const SECTION_TONES: Record<string, string> = {
+  Summary: 'amber',
   Links: 'indigo',
   Skills: 'pink',
   Experience: 'blue',
@@ -190,6 +198,14 @@ const SECTION_TONES: Record<string, string> = {
 const iconProps = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
 
 const SECTION_ICONS: Record<string, ReactNode> = {
+  Summary: (
+    <svg {...iconProps}>
+      <path d="M15 12h-5" />
+      <path d="M15 8h-5" />
+      <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+      <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" />
+    </svg>
+  ),
   Links: (
     <svg {...iconProps}>
       <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
