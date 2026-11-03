@@ -6,6 +6,7 @@
 3. **resume_generation:** renders the branded MinistryHub PDF from the structured data, on demand (`GET /api/resume_generation/{intake_id}`, opened from the result screen's "Open branded PDF" link). The PDF isn't stored.
 4. **public_api:** the same extraction and branded PDF for outside systems (e.g. Loxo), behind an `X-API-Key` header and keyed by the caller's own `candidate_id` + `resume_id`: `POST /api/public/resumes` (JSON) and `GET /api/public/resumes/{candidate_id}/{resume_id}/pdf?template_id=1`.
 5. **ai_usage:** records every answered OpenAI call (model, call type, tokens, cost priced at that model) and shows usage and cost on the AI usage panel (`#/usage`, `GET /api/ai_usage`); the past-interviews list shows each CV's AI cost.
+6. **candidates:** a recruiter adds a candidate from one CV (`POST /api/candidates`, SSE): AI extraction, the branded PDF, and both files stored in Neon Object Storage (the original private, the PDF public). The candidate page (`#/candidates`) lists them with links, source and AI cost, and deletes them. `POST /api/public/pdf` (public_api) does the same for outside systems and returns the PDF.
 
 The client project is MinistryHub branded resumes, triggered from Loxo.
 
@@ -13,8 +14,10 @@ The detailed design for each feature lives in `docs/features/<feature>.md`, writ
 - `resume_intake` and `resume_structuring` (AI extraction) are designed and built.
 - `resume_generation` (the branded PDF) is designed and built.
 - `ai_usage` (the AI usage panel) is designed and built.
+- The switch to `gpt-5.6-luna` (`docs/features/model_switch.md`) is built, and its live check passed on 2026-11-03. It isn't pushed yet.
 - Rate limiting and the AI spending cap (`docs/features/rate_limit_and_spend_cap.md`) are designed and built.
 - `public_api` (`docs/features/public_api.md`) is designed and built; its migration awaits the user's approval to run on Aiven.
+- `candidates` (add a candidate with S3 storage, the candidate page, the public PDF endpoint; `docs/features/candidates.md`) is approved (2026-11-03) and built; its migration `3aee3f10cd78` ran on the local Postgres only (Aiven needs the user's go-ahead), and the live Neon and OpenAI checks are still to run.
 
 ## Layout
 ```
@@ -24,6 +27,7 @@ backend/
                             #   frontend at / when backend/static exists (the Docker image)
     core/                   # shared: config.py (settings from .env), database.py (engine, Base, get_db),
                             #   rate_limit.py (per-IP rate-limit middleware for /api)
+    # features/*/service.py may raise HTTPException only for ai_usage.require_ai_budget (one shared copy)
     features/<feature>/     # one vertical slice per feature (see below)
   alembic/                  # migrations; env.py reuses app.core.database.engine
   tests/features/<feature>/ # pytest, mirrors app/features
@@ -31,6 +35,7 @@ frontend/
   src/
     main.tsx, app/App.tsx   # entry + root component
     shared/                 # shared: api/client.ts (fetch helpers, incl. the event-stream reader), format.ts (formatUsd), test/setup.ts
+                            # (app/app.css holds the shared look, incl. the upload progress overlay)
     features/<feature>/     # one vertical slice per feature (see below)
   e2e/<feature>.spec.ts     # Playwright end-to-end flows
 docs/                       # this file + docs/features/<feature>.md designs
@@ -107,7 +112,7 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-10-22 | DOCX text via the standard library (`zipfile` + `xml.etree`) | No dependency needed. Bundled Expat is safe against entity attacks. |
 | 2026-10-22 | Legacy `.doc` via our own piece-table parser on `olefile` | User choice: no LibreOffice system install. |
 | 2026-10-22 | No OCR yet. Scanned PDFs get a 422. | User choice: deferred |
-| 2026-10-22 | Extracted text and answers are stored; the original file isn't kept. CVs over 4 pages are rejected. | User choice |
+| 2026-10-22 | Extracted text and answers are stored; the original file isn't kept. CVs over 4 pages are rejected. (The candidates feature keeps the original file: see 2026-11-03.) | User choice |
 | 2026-10-22 | 10 MB request limit via Starlette `RequestBodyLimitMiddleware` in `app/main.py` | FastAPI reads the whole upload before the endpoint runs, so only middleware can stop a huge upload. |
 | 2026-10-22 | Engine `hide_parameters=True` | A failed INSERT would otherwise log CV text. |
 | 2026-10-22 | Native drag-and-drop on a visible `<input type="file">`; no upload library | Simplicity (rule 2). Keyboard access and native required-field validation come free. |
@@ -135,4 +140,6 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-10-27 | Database on Aiven for PostgreSQL (`sslmode=require`); `backend/.env` points at it, and the local Postgres line is kept commented out. (Supersedes "Local Postgres install" for the database.) | User choice, for the deploy. |
 | 2026-10-27 | Deploy on Render as **one Docker web service** (root `Dockerfile`): stage 1 builds the frontend, stage 2 is `python:3.13-slim` with `playwright install --with-deps --only-shell chromium`. FastAPI serves the built frontend from `backend/static` at `/` (mounted only when that folder exists) and the API at `/api`. The container runs `alembic upgrade head` on every start. | One origin, so no CORS and no API URL to configure; one service. Docker because Chromium needs system libraries that Render's native Python runtime can't install. |
 | 2026-11-02 | Public API in the `public_api` slice: one shared key in the `X-API-Key` header (`PUBLIC_API_KEY`; unset = 401), its own table `public_resumes` keyed by the caller's unique `(candidate_id, resume_id)` (a repeat replaces, by `INSERT … ON CONFLICT DO UPDATE`), plain JSON instead of SSE, the PDF by `template_id` (only 1). Its AI calls are stored unlinked and count toward the spending cap; its POST shares the upload rate-limit bucket. | User choice (`docs/features/public_api.md`). A separate table, because `resume_intakes` rows need the interview answers and show in the web history. |
+| 2026-11-03 | **Built 2026-11-03** (`docs/features/model_switch.md`; live check passed 2026-11-03): every OpenAI call (structuring, OCR, OCR retry, and so `public_api`) switches from `gpt-4.1-mini` to `gpt-5.6-luna`, with `reasoning={"effort": "none"}` added next to `temperature=0`. `OPENAI_MODEL` stays a code constant, not an env var. (Supersedes the 2026-10-22 `gpt-4.1-mini` row.) | User choice: gpt-4.1-mini is removed on 2027-01-14 and failed both prompt-injection benchmark cases; gpt-5.6-luna passed them and costs less per CV. Luna rejects `temperature` at its default effort; `"none"` is the benchmarked setting. A constant keeps the model, its call parameters and its `PRICES` entry changing together. |
+| 2026-11-03 | `candidates` slice (approved and built 2026-11-03) (`docs/features/candidates.md`). **Storage:** Neon Object Storage (S3-compatible, path-style) through `boto3`. The original CVs go in the private `RESUME_BUCKET` (presigned links, 1 h); the branded PDFs go in the public `PUBLIC_RESUME_BUCKET` (permanent URL). Keys are random `candidates/{uuid}/`; storage is written before the row, with a best-effort delete on failure; delete removes the objects, then the row (Neon soft-deletes). **Data:** a `candidates` table (name, `source` `manual`/`api`, file type, two keys, `ai_cost_usd` set at save time); the AI calls are stored unlinked. **API:** `POST /api/candidates` streams `reading`, `extracting`, `generating`, `uploading`, then `done` (only the public URL) or `error`; `POST /api/public/pdf` (`template_id`, default 1) also saves a candidate. One `require_ai_budget`, in `ai_usage/service.py`. **Supersedes** "the original file isn't kept". | User choices 2026-11-03 plus the challenger's review. No queue (user). No login yet (accepted; next feature). |
 | Open | Render forwarded-header trust for the client IP (until then every visitor shares one rate-limit bucket), auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |

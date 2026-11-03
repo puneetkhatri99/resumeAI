@@ -114,7 +114,7 @@ The user wants a panel showing AI usage and cost. OpenAI shuts gpt-4.1-mini down
 - `.claude/learning.md`: the user's choices, the price table and its date, the cache-write rule, and the undercount gap.
 
 ## Tests (pytest and Vitest only; no live OpenAI, no Playwright)
-- **`tests/conftest.py`:** `FakeOpenAI.parse` and `.create` return a fixed `usage` (`FAKE_USAGE`: 1,000 input with 200 cached, 300 output, so `FAKE_CALL_COST` = $0.00082 at gpt-4.1-mini prices).
+- **`tests/conftest.py`:** `FakeOpenAI.parse` and `.create` return a fixed `usage` (`FAKE_USAGE`: 1,000 input with 200 cached, 300 output, so `FAKE_CALL_COST` = $0.00082 at gpt-4.1-mini prices). Switched to gpt-5.6-luna on 2026-11-03, see [model_switch.md](model_switch.md): `FAKE_CALL_COST` is now $0.000524.
 - **Existing tests that change:**
   - `[]` (or `[], "ocr"`) at about 45 call sites: `resume_structuring/test_service.py`, `resume_intake/test_service.py`, `resume_generation/test_router.py` (`save_resume_intake`).
   - `FailingCommitSession` gets `flush`, `add_all` and `rollback`.

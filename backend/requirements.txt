@@ -13,3 +13,10 @@ openai==3.36.1
 playwright==1.64.0
 # Already installed through fastapi[standard...]; pinned because resume_generation imports it.
 jinja2==3.1.6
+# candidates: Neon Object Storage (S3-compatible). boto3's own dependencies are pinned too.
+boto3==1.43.123
+botocore==1.43.123
+s3transfer==0.19.3
+jmespath==1.1.0
+python-dateutil==2.9.0.post0
+six==1.17.0

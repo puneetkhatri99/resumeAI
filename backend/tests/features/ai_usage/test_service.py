@@ -6,16 +6,22 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.service import (
+    AI_SPEND_CAP_MESSAGE,
+    DATABASE_DOWN_MESSAGE,
     PRICES,
     ai_spend_cap_reached,
     call_cost,
     record_ai_call,
+    require_ai_budget,
+    total_cost,
 )
 from app.features.resume_structuring.service import OPENAI_MODEL
 from tests.conftest import FAKE_CALL_COST, FAKE_USAGE
@@ -47,11 +53,11 @@ def test_the_model_in_use_has_a_price() -> None:
 def test_record_ai_call_appends_the_call_with_its_tokens_and_cost() -> None:
     ai_calls: list[AiCall] = []
 
-    record_ai_call(ai_calls, "gpt-4.1-mini", "structuring", FAKE_USAGE)
+    record_ai_call(ai_calls, OPENAI_MODEL, "structuring", FAKE_USAGE)
 
     [call] = ai_calls
     assert (call.model, call.call_type, call.resume_intake_id) == (
-        "gpt-4.1-mini",
+        OPENAI_MODEL,
         "structuring",
         None,
     )
@@ -148,3 +154,49 @@ def test_an_unpriced_call_counts_as_zero_towards_the_cap(
     add_call(db_session, "gpt-unknown", None)
 
     assert ai_spend_cap_reached(db_session) is False
+
+
+def make_call(cost_usd: Decimal | None) -> AiCall:
+    """An unsaved AI call with the given cost."""
+    return AiCall(model=OPENAI_MODEL, call_type="structuring", cost_usd=cost_usd)
+
+
+def test_total_cost_sums_the_priced_calls_only() -> None:
+    calls = [make_call(Decimal("0.001")), make_call(None), make_call(Decimal("0.0005"))]
+
+    assert total_cost(calls) == Decimal("0.0015")
+
+
+@pytest.mark.parametrize("calls", [[], [None, None]])
+def test_total_cost_is_none_when_no_call_is_priced(calls: list[None]) -> None:
+    assert total_cost([make_call(cost) for cost in calls]) is None
+
+
+def test_require_ai_budget_passes_below_the_cap(
+    db_session: Session, total_before: Decimal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before + Decimal("0.01"))
+
+    assert require_ai_budget(db_session) is None
+
+
+def test_require_ai_budget_is_402_at_the_cap(
+    db_session: Session, total_before: Decimal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before)
+
+    with pytest.raises(HTTPException) as caught:
+        require_ai_budget(db_session)
+
+    assert (caught.value.status_code, caught.value.detail) == (402, AI_SPEND_CAP_MESSAGE)
+
+
+def test_require_ai_budget_is_503_when_the_database_is_down() -> None:
+    class FailingSession:
+        def scalar(self, statement: object) -> None:
+            raise OperationalError("SELECT", {}, ConnectionRefusedError("connection refused"))
+
+    with pytest.raises(HTTPException) as caught:
+        require_ai_budget(FailingSession())  # type: ignore[arg-type]
+
+    assert (caught.value.status_code, caught.value.detail) == (503, DATABASE_DOWN_MESSAGE)

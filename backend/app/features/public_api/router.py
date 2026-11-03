@@ -1,13 +1,13 @@
 """Public API for outside systems (e.g. Loxo), behind the X-API-Key header:
 POST a resume under the caller's own candidate and resume ids and get the AI-extracted details
-back as JSON; GET the branded MinistryHub PDF for a stored pair.
+back as JSON; GET the branded MinistryHub PDF for a stored pair; or POST a resume and get its
+branded PDF straight back (it is also saved as a candidate, source "api").
 """
 
 import logging
 import secrets
 from datetime import date
 from typing import Annotated
-from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -29,8 +29,13 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.features.ai_usage.service import (
     AiCall,
-    ai_spend_cap_reached,
+    require_ai_budget,
     save_ai_calls_without_intake,
+)
+from app.features.candidates.service import (
+    FileStorageError,
+    pdf_content_disposition,
+    store_candidate,
 )
 from app.features.public_api.schemas import PublicId, PublicResumeResponse
 from app.features.public_api.service import get_public_resume, save_public_resume
@@ -50,7 +55,6 @@ from app.features.resume_structuring.service import (
 logger = logging.getLogger(__name__)
 
 DATABASE_DOWN_MESSAGE = "The database is unavailable. Try again later."
-AI_SPEND_CAP_MESSAGE = "AI spending limit reached. Uploads are paused."
 INVALID_KEY_MESSAGE = "Invalid or missing API key."
 # The one template that exists today: the MinistryHub branded resume.
 MINISTRYHUB_TEMPLATE_ID = 1
@@ -73,20 +77,6 @@ def require_api_key(api_key: Annotated[str | None, Security(api_key_header)]) ->
             INVALID_KEY_MESSAGE,
             headers={"WWW-Authenticate": "ApiKey"},
         )
-
-
-def require_ai_budget(db: Annotated[Session, Depends(get_db)]) -> None:
-    """Refuse with 402 once all-time AI spending has reached AI_SPEND_CAP_USD; 503 if the
-    database fails during the check. Same rule as resume_intake's upload, and the public
-    uploads' calls count toward the same total.
-    """
-    try:
-        cap_reached = ai_spend_cap_reached(db)
-    except SQLAlchemyError:
-        logger.exception("Could not check the AI spending cap: database error")
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None
-    if cap_reached:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, AI_SPEND_CAP_MESSAGE)
 
 
 router = APIRouter(prefix="/public", tags=["public_api"], dependencies=[Depends(require_api_key)])
@@ -170,14 +160,61 @@ def read_public_resume_pdf(
     except PdfRenderError as exc:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from None
 
-    # The name is AI output: always percent-encoded (also /, \, quotes, CR and LF).
-    filename = quote(f"MinistryHub - {data.name}.pdf", safe="")
+    return pdf_response(pdf, data.name)
+
+
+# Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
+@router.post("/pdf", dependencies=[Depends(require_ai_budget)])
+def create_pdf(
+    file: UploadFile,
+    db: Annotated[Session, Depends(get_db)],
+    template_id: Annotated[int, Form()] = MINISTRYHUB_TEMPLATE_ID,
+) -> Response:
+    """Read the CV, have AI extract its details, render the branded PDF for `template_id` (only
+    1, MinistryHub), save it as a candidate (source "api") with both files stored, and return
+    the PDF (200, inline `application/pdf`).
+
+    401 bad key; 402 spending cap; 404 unknown template (before any AI call); 415 not a PDF,
+    DOCX, DOC or TXT; 422 invalid form or unusable CV text; 500 Chromium failed; 502 an AI call
+    or the file storage failed (no PDF then); 503 database unavailable. On any error nothing is
+    stored, but the AI calls OpenAI answered (and billed) are stored unlinked. Usually 5-30 s;
+    callers should allow 10 minutes.
+    """
+    if template_id != MINISTRYHUB_TEMPLATE_ID:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Template not found.")
+    # Every AI call OpenAI answers, collected for the usage panel and the candidate's cost.
+    ai_calls: list[AiCall] = []
+    try:
+        data = file.file.read()
+        file_type, text, read_by_ocr = extract_text(data, ai_calls)
+        _, resume = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
+        pdf = render_pdf(build_resume_html(resume, date.today()))
+        store_candidate(db, data, file_type, pdf, resume.name, "api", ai_calls)
+    except UnsupportedFileTypeError as exc:
+        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
+    except (ResumeExtractionError, ResumeStructuringError) as exc:
+        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
+    except (AiExtractionError, FileStorageError) as exc:
+        status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
+    except PdfRenderError as exc:
+        status_code, detail = status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)
+    except SQLAlchemyError:
+        # hide_parameters on the engine keeps the name out of this log.
+        logger.exception("Could not store the candidate: database error")
+        status_code, detail = status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE
+    else:
+        return pdf_response(pdf, resume.name)
+    save_ai_calls_without_intake(db, ai_calls)
+    raise HTTPException(status_code, detail)
+
+
+def pdf_response(pdf: bytes, name: str) -> Response:
+    """The PDF inline, named "MinistryHub - <name>.pdf", never cached (personal data)."""
     return Response(
         pdf,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"inline; filename*=UTF-8''{filename}",
-            # Personal data: no client or proxy keeps a copy in its HTTP cache.
+            "Content-Disposition": pdf_content_disposition(name),
             "Cache-Control": "no-store",
         },
     )

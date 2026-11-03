@@ -19,6 +19,8 @@ ResumeAI takes an existing resume, uses AI to turn it into structured data, and 
    ```
 3. Copy `backend/.env.example` to `backend/.env`, then put your password into `DATABASE_URL` and your OpenAI API key into `OPENAI_API_KEY`. Both are required: the backend won't start without them.
 
+   Also required (the candidates feature, [docs/features/candidates.md](docs/features/candidates.md)): the Neon Object Storage settings `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET` (the private bucket for the original CVs) and `PUBLIC_RESUME_BUCKET` (a bucket set to public read in the Neon Console, for the branded PDFs). The backend won't start without them.
+
    Optional: `AI_SPEND_CAP_USD` (default `5`) is the all-time AI spending cap in USD. Once the recorded AI cost reaches it, uploads answer HTTP 402 ("AI spending limit reached. Uploads are paused.") until you raise it and restart the backend. Every `/api` endpoint is also rate-limited per IP (120 requests a minute, plus 30 uploads an hour; HTTP 429 when over). See [docs/features/rate_limit_and_spend_cap.md](docs/features/rate_limit_and_spend_cap.md).
 
    Optional: `PUBLIC_API_KEY` is the key outside systems send as the `X-API-Key` header to the public API (`/api/public`, see [docs/features/public_api.md](docs/features/public_api.md)). Unset or empty, every public route answers HTTP 401.
@@ -30,7 +32,7 @@ py -V:3.13 -m venv .venv    # always name 3.13; see the next section
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 python -m playwright install --only-shell chromium   # once: the headless browser that prints the branded PDF
-alembic upgrade head        # creates / updates the tables (resume_intakes, ai_calls)
+alembic upgrade head        # creates / updates the tables
 fastapi dev app/main.py
 ```
 The Playwright step needs no admin rights and downloads only Chromium's headless shell into `%LOCALAPPDATA%\ms-playwright` (shared with the frontend's Playwright). Without it, "Open branded PDF" answers 500.
@@ -103,7 +105,7 @@ No test calls OpenAI except the e2e live test above: pytest replaces the client 
 The app deploys as one Docker web service from the root [Dockerfile](Dockerfile). It builds the frontend, and FastAPI serves it at `/` with the API at `/api`. The container runs `alembic upgrade head` on every start.
 
 1. On Render, go to **New → Web Service**, pick this GitHub repo, and set **Language** to **Docker**.
-2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`. `AI_SPEND_CAP_USD` is optional (default 5). `PUBLIC_API_KEY` is optional (unset closes the public API). `.env` isn't in the image.
+2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`, plus the six storage settings (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET`, `PUBLIC_RESUME_BUCKET`), all required. `AI_SPEND_CAP_USD` is optional (default 5). `PUBLIC_API_KEY` is optional (unset closes the public API). `.env` isn't in the image.
 3. Deploy, then check that `https://<service>.onrender.com/api/health` shows `{"status":"ok","database":"ok"}`.
 
 There's no login yet, so anyone with the URL can use the app.

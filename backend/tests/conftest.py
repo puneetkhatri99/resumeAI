@@ -1,5 +1,6 @@
-"""Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI;
-the autouse reset_rate_limits fixture starts every test with no requests counted.
+"""Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI,
+the autouse fake_s3 fixture keeps every test away from Neon Object Storage, and the autouse
+reset_rate_limits fixture starts every test with no requests counted.
 """
 
 from collections.abc import Iterator
@@ -10,11 +11,13 @@ from typing import Any
 import httpx2
 import openai
 import pytest
+from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.database import engine, get_db
 from app.core.rate_limit import rate_limiter
+from app.features.candidates import service as candidates_service
 from app.features.resume_structuring import service as resume_structuring_service
 from app.features.resume_structuring.schemas import (
     Certificate,
@@ -56,8 +59,9 @@ FAKE_RESUME_DATA = ResumeData(
     certificates=[Certificate(name="AWS Cloud Practitioner", issuer="AWS", date="2022")],
 )
 FAKE_OCR_TEXT = "Jane Doe\njane.doe@example.com\nSoftware engineer, read by OCR"
-# The usage every fake response reports, shaped like the SDK's ResponseUsage. At gpt-4.1-mini
-# prices: 800 x 0.40 + 200 x 0.10 + 300 x 1.60 = 820 per 1M tokens, so $0.00082 per call.
+# The usage every fake response reports, shaped like the SDK's ResponseUsage. At gpt-5.6-luna
+# prices: 800 x 0.20 + 200 x 0.02 + 0 x 0.25 + 300 x 1.20 = 524 per 1M tokens, so $0.000524
+# per call.
 FAKE_USAGE = SimpleNamespace(
     input_tokens=1000,
     input_tokens_details=SimpleNamespace(cached_tokens=200, cache_write_tokens=0),
@@ -65,7 +69,7 @@ FAKE_USAGE = SimpleNamespace(
     output_tokens_details=SimpleNamespace(reasoning_tokens=0),
     total_tokens=1300,
 )
-FAKE_CALL_COST = Decimal("0.00082")
+FAKE_CALL_COST = Decimal("0.000524")
 
 
 def make_openai_status_error(
@@ -122,6 +126,49 @@ def fake_openai(monkeypatch: pytest.MonkeyPatch) -> FakeOpenAI:
     """
     fake = FakeOpenAI()
     monkeypatch.setattr(resume_structuring_service, "client", fake)
+    return fake
+
+
+class FakeS3:
+    """Stand-in for the storage client's put_object and delete_object: an in-memory dict of
+    objects keyed by (bucket, key), each holding the PUT's keyword arguments.
+
+    A PUT to a bucket in `fail_put_buckets`, or any delete while `fail_delete` is set, raises
+    a ClientError the way boto3 does. Deletes are recorded in `deleted`; deleting a missing key
+    succeeds, as in S3.
+    """
+
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], dict[str, Any]] = {}
+        self.deleted: list[tuple[str, str]] = []
+        self.fail_put_buckets: set[str] = set()
+        self.fail_delete = False
+
+    def put_object(self, *, Bucket: str, Key: str, **kwargs: Any) -> dict[str, Any]:
+        """Store the object, or fail for a bucket in fail_put_buckets."""
+        if Bucket in self.fail_put_buckets:
+            raise ClientError({"Error": {"Code": "InternalError"}}, "PutObject")
+        self.objects[(Bucket, Key)] = kwargs
+        return {}
+
+    def delete_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        """Remove the object (a missing key is fine), or fail while fail_delete is set."""
+        if self.fail_delete:
+            raise ClientError({"Error": {"Code": "InternalError"}}, "DeleteObject")
+        self.objects.pop((Bucket, Key), None)
+        self.deleted.append((Bucket, Key))
+        return {}
+
+
+@pytest.fixture(autouse=True)
+def fake_s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
+    """Replace the storage client's writes in every test, so pytest never calls Neon.
+
+    Presigning stays real: it is computed locally and makes no request.
+    """
+    fake = FakeS3()
+    monkeypatch.setattr(candidates_service.s3, "put_object", fake.put_object)
+    monkeypatch.setattr(candidates_service.s3, "delete_object", fake.delete_object)
     return fake
 
 

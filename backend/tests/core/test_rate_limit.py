@@ -15,7 +15,7 @@ from app.core.rate_limit import (
     UPLOAD_WINDOW_SECONDS,
     RateLimiter,
 )
-from app.features.resume_intake.router import require_ai_budget
+from app.features.ai_usage.service import require_ai_budget
 from app.main import app
 
 UPLOAD_PATH = "/api/resume_intake"
@@ -79,6 +79,23 @@ def test_public_uploads_share_the_upload_limit(clock: FakeClock) -> None:
 
     assert limiter.check("203.0.113.1", "POST", PUBLIC_UPLOAD_PATH) == UPLOAD_WINDOW_SECONDS
     assert limiter.check("203.0.113.1", "GET", "/api/public/resumes/a/b/pdf") is None
+
+
+@pytest.mark.parametrize("path", ["/api/candidates", "/api/public/pdf"])
+def test_the_31st_upload_to_each_new_upload_path_is_429(
+    client: TestClient, clock: FakeClock, path: str
+) -> None:
+    """Both run AI extraction, so they count in the hourly upload bucket. Empty bodies get a
+    quick 422 (or 401 without the public key), and the cap check is skipped: no database needed.
+    """
+    app.dependency_overrides[require_ai_budget] = lambda: None
+    for _ in range(UPLOAD_LIMIT):
+        assert client.post(path).status_code in (401, 422)
+
+    response = client.post(path)
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == str(UPLOAD_WINDOW_SECONDS)
 
 
 def test_requests_outside_api_are_not_counted(client: TestClient, clock: FakeClock) -> None:

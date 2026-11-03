@@ -554,3 +554,169 @@ a:hover {
     padding: 20px;
   }
 }
+
+a.button {
+  text-decoration: none;
+}
+
+/* The progress overlay of an upload (resume_intake, candidates) and the button spinner. */
+.button-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #a9b6e6;
+  border-top-color: #2a3570;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+/* Covers the page while sending, so the progress shows wherever the interviewer has scrolled to. */
+.progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(20 26 61 / 55%);
+  backdrop-filter: blur(3px);
+  animation: fade-in 0.2s ease;
+}
+
+.progress-card {
+  width: min(440px, 100%);
+  padding: 0;
+  overflow: hidden;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.4);
+  }
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--line);
+}
+
+.progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, var(--blue), var(--violet));
+  transition: width 0.4s ease;
+}
+
+.progress-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.progress-head h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.progress-count {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--blue-tint);
+  color: var(--blue-dark);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* A step: its marker (dashed circle, spinner or tick) beside a label and a hint. */
+.progress-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  column-gap: 12px;
+}
+
+.progress-step::before {
+  content: '';
+  grid-row: span 2;
+  width: 28px;
+  height: 28px;
+  border: 2px dashed #c2c9da;
+  border-radius: 50%;
+}
+
+.progress-step-done::before {
+  border: 0;
+  background: var(--teal)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / 14px no-repeat;
+  animation: pop 0.3s ease;
+}
+
+.progress-step-active .progress-step-label {
+  color: var(--violet-dark);
+}
+
+.progress-step-active::before {
+  border: 3px solid #dcd0ff;
+  border-top-color: var(--violet);
+  animation: spin 0.9s linear infinite;
+}
+
+.progress-step-label {
+  font-weight: 600;
+}
+
+.progress-step-todo .progress-step-label {
+  color: var(--muted);
+}
+
+.progress-step-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.progress-status {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--violet-tint);
+  color: var(--violet-dark);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-spinner,
+  .progress-overlay,
+  .progress-step-done::before,
+  .progress-step-active::before {
+    animation: none;
+  }
+}

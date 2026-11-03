@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.features.ai_usage.service import (
     AiCall,
-    ai_spend_cap_reached,
+    require_ai_budget,
     save_ai_calls_without_intake,
 )
 from app.features.resume_intake.schemas import (
@@ -44,26 +44,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/resume_intake", tags=["resume_intake"])
 
 DATABASE_DOWN_MESSAGE = "The database is unavailable. Try again later."
-AI_SPEND_CAP_MESSAGE = "AI spending limit reached. Uploads are paused."
 PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
-
-
-def require_ai_budget(db: Annotated[Session, Depends(get_db)]) -> None:
-    """Refuse an upload with 402 once all-time AI spending has reached AI_SPEND_CAP_USD.
-
-    A dependency, so it runs before the event stream starts: the refusal is a plain HTTP error
-    and no AI call is made. 503 if the database is unavailable during the check. The check runs
-    once per upload, so an upload already running (or several started together) can push the
-    total past the cap by its own cost.
-    """
-    try:
-        cap_reached = ai_spend_cap_reached(db)
-    except SQLAlchemyError:
-        logger.exception("Could not check the AI spending cap: database error")
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None
-    if cap_reached:
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, AI_SPEND_CAP_MESSAGE)
 
 
 @router.get("", response_model=IntakeList)
@@ -125,8 +107,8 @@ def create_intake(
     AI call (OCR or extraction) fails; 503 if the database is unavailable. No intake is stored
     on any error, but the AI calls OpenAI answered (and billed) are stored unlinked (ai_usage).
     Invalid answers (422), an oversized request (413), the AI spending cap (402, see
-    require_ai_budget) and the rate limit (429, app.core.rate_limit) are plain HTTP errors,
-    sent before the stream starts.
+    ai_usage.require_ai_budget) and the rate limit (429, app.core.rate_limit) are plain HTTP
+    errors, sent before the stream starts.
     """
     answers = InterviewAnswers(
         notice_period=notice_period,

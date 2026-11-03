@@ -1,8 +1,9 @@
 """Per-IP rate limiting for every /api request: an in-memory sliding window, no package needed.
 
 Two limits (user decision, 2026-10-27): 120 /api requests per minute overall, plus 30 uploads
-(POST /api/resume_intake and POST /api/public/resumes together) per hour, counted on top of
-the overall limit. A request over either gets 429 with a Retry-After header. The counts live in
+per hour, counted on top of the overall limit. The uploads are the four POSTs that run AI
+extraction, together: /api/resume_intake, /api/public/resumes, /api/candidates and
+/api/public/pdf. A request over either gets 429 with a Retry-After header. The counts live in
 this process's memory, so they reset on a restart and aren't shared between instances.
 
 The client IP is request.client.host. Behind a proxy (Render) that is the proxy's address
@@ -20,7 +21,12 @@ from starlette.responses import JSONResponse, Response
 
 API_PREFIX = "/api"
 # POSTs to these paths run AI extraction, so they also count in the "upload" bucket.
-UPLOAD_PATHS = {"/api/resume_intake", "/api/public/resumes"}
+UPLOAD_PATHS = {
+    "/api/resume_intake",
+    "/api/public/resumes",
+    "/api/candidates",
+    "/api/public/pdf",
+}
 API_LIMIT = 120
 API_WINDOW_SECONDS = 60
 UPLOAD_LIMIT = 30

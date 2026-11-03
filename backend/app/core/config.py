@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # The X-API-Key that callers of /api/public must send (public_api). Unset: every public
     # route answers 401, and the rest of the app still starts.
     public_api_key: SecretStr | None = None
+    # Neon Object Storage (S3-compatible) for the candidates feature. All required: the app
+    # won't start without them. RESUME_BUCKET is private (the original CVs);
+    # PUBLIC_RESUME_BUCKET is public-read (the branded PDFs).
+    aws_endpoint_url_s3: str
+    aws_access_key_id: SecretStr
+    aws_secret_access_key: SecretStr
+    aws_region: str
+    resume_bucket: str
+    public_resume_bucket: str
 
 
 settings = Settings()

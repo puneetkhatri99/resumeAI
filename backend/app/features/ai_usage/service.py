@@ -2,21 +2,23 @@
 
 Other features record calls through this module (rule 7): they collect AiCall objects in a list
 with record_ai_call while they work, then store them with add_ai_calls (with the intake) or
-save_ai_calls_without_intake (a failed upload). resume_intake asks ai_spend_cap_reached before
-each upload. This module never imports resume_intake, which imports it. No CV text or personal
-data is stored or logged here.
+save_ai_calls_without_intake (a failed upload). Every upload endpoint (resume_intake, public_api,
+candidates) depends on require_ai_budget, the one copy of the spending-cap check. This module
+never imports the features that import it. No CV text or personal data is stored or logged here.
 """
 
 import logging
 from decimal import Decimal
-from typing import NamedTuple
+from typing import Annotated, NamedTuple
 
+from fastapi import Depends, HTTPException, status
 from openai.types.responses import ResponseUsage
 from sqlalchemy import ColumnElement, Date, ScalarSelect, cast, func, select, text
 from sqlalchemy.exc import DataError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.schemas import (
     AiUsageReport,
@@ -33,6 +35,8 @@ RECENT_CALLS_LIMIT = 50
 DAYS_SHOWN = 30
 TOKENS_PER_PRICE_UNIT = Decimal(1_000_000)
 UNKNOWN_TIME_ZONE_MESSAGE = "Unknown time zone."
+AI_SPEND_CAP_MESSAGE = "AI spending limit reached. Uploads are paused."
+DATABASE_DOWN_MESSAGE = "The database is unavailable. Try again later."
 
 
 class ModelPrice(NamedTuple):
@@ -136,6 +140,12 @@ def save_ai_calls_without_intake(db: Session, ai_calls: list[AiCall]) -> None:
         logger.warning("Could not store the AI usage of a failed upload: %s", type(exc).__name__)
 
 
+def total_cost(ai_calls: list[AiCall]) -> Decimal | None:
+    """The summed cost of the priced calls in `ai_calls`, or None when none of them is priced."""
+    costs = [ai_call.cost_usd for ai_call in ai_calls if ai_call.cost_usd is not None]
+    return sum(costs, Decimal(0)) if costs else None
+
+
 def intake_cost_column(intake_id: ColumnElement[int]) -> ScalarSelect[Decimal | None]:
     """A scalar subquery for the summed cost of an intake's calls (null when it has none)."""
     return (
@@ -154,6 +164,24 @@ def ai_spend_cap_reached(db: Session) -> bool:
     """
     total_cost = db.scalar(select(func.coalesce(func.sum(AiCall.cost_usd), 0)))
     return total_cost >= settings.ai_spend_cap_usd
+
+
+def require_ai_budget(db: Annotated[Session, Depends(get_db)]) -> None:
+    """FastAPI dependency for every upload: 402 once all-time AI spending has reached
+    AI_SPEND_CAP_USD, 503 if the database fails during the check.
+
+    It runs before the endpoint (and before an event stream starts), so the refusal is a plain
+    HTTP error and no AI call is made. The check runs once per upload, so an upload already
+    running (or several started together) can push the total past the cap by its own cost.
+    It raises HTTPException, the one HTTP concern in this service, to keep a single copy.
+    """
+    try:
+        cap_reached = ai_spend_cap_reached(db)
+    except SQLAlchemyError:
+        logger.exception("Could not check the AI spending cap: database error")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None
+    if cap_reached:
+        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED, AI_SPEND_CAP_MESSAGE)
 
 
 def usage_report(db: Session, tz: str) -> AiUsageReport:

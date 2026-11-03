@@ -40,6 +40,7 @@ def test_returns_the_parsed_result_and_sends_the_text_with_store_off(
             "instructions": INSTRUCTIONS,
             "input": CV_TEXT,
             "text_format": ResumeData,
+            "reasoning": {"effort": "none"},
             "temperature": 0,
             "store": False,
         }
@@ -179,6 +180,7 @@ def test_transcribe_pdf_sends_the_file_as_base64_under_a_fixed_name_with_store_o
                     ],
                 }
             ],
+            "reasoning": {"effort": "none"},
             "temperature": 0,
             "store": False,
         }

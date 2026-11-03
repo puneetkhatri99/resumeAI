@@ -20,6 +20,7 @@ The extracted details then appear as readable sections on the result screen.
 - **Model:** `gpt-4.1-mini` through the official `openai` SDK.
   - OpenAI removes it from the API on **2027-01-14** (deprecation notice dated 2026-10-14). The replacement it recommends is `gpt-6-luna`.
   - The user chose to keep `gpt-4.1-mini` for now. **It must be switched before 2027-01-14.**
+  - Switched to `gpt-5.6-luna` on 2026-11-03, see [model_switch.md](model_switch.md).
 - **CV text sent to the AI:** at most **50,000 characters**. Longer text gets a 422 before any AI call, and nothing is stored. A TXT CV otherwise has no limit.
 - **`OPENAI_API_KEY` is required.** The app won't start without it. This supersedes the earlier "optional, not used yet" choice.
 - **Live AI in tests:**

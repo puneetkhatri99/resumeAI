@@ -19,4 +19,12 @@ describe('CvDropzone', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('hides the "never the file" rule only when the flow stores the file', () => {
+    const { rerender } = render(<CvDropzone />)
+    expect(screen.getByText('Only the text is saved, never the file')).toBeInTheDocument()
+
+    rerender(<CvDropzone storesFile />)
+    expect(screen.queryByText('Only the text is saved, never the file')).not.toBeInTheDocument()
+  })
 })

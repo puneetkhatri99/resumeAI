@@ -23,8 +23,9 @@ const FILE_ICON = (
  * Keyboard use and the browser's "required" check keep working without extra code.
  * Once a file is chosen the zone shows its name, type and size. Dropping several files at once is refused with
  * an alert, and any CV already chosen is kept.
+ * `storesFile` hides the "never the file" rule for flows that keep the original (candidates).
  */
-export function CvDropzone() {
+export function CvDropzone({ storesFile = false }: { storesFile?: boolean }) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -125,7 +126,7 @@ export function CvDropzone() {
         <li>PDF, DOCX, DOC or TXT</li>
         <li>Up to 4 pages and 10 MB</li>
         <li>Scanned PDFs are read with OCR (slower)</li>
-        <li>Only the text is saved, never the file</li>
+        {!storesFile && <li>Only the text is saved, never the file</li>}
       </ul>
     </section>
   )

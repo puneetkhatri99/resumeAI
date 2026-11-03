@@ -21,9 +21,9 @@ from app.features.resume_structuring.schemas import ResumeData
 
 logger = logging.getLogger(__name__)
 
-# OpenAI removes gpt-4.1-mini from the API on 2027-01-14 (it recommends gpt-6-luna).
-# The user chose to keep it for now: it must be switched before that date.
-OPENAI_MODEL = "gpt-4.1-mini"
+# gpt-5.6-luna accepts temperature=0 only with reasoning={"effort": "none"}, which is also the
+# setting the 2026-10-23 benchmark measured.
+OPENAI_MODEL = "gpt-5.6-luna"
 MAX_CV_TEXT_CHARS = 50_000
 INSTRUCTIONS = (
     "Extract the candidate's details from the CV text into the given schema. "
@@ -89,6 +89,7 @@ def transcribe_pdf(
                     ],
                 }
             ],
+            reasoning={"effort": "none"},
             temperature=0,
             store=False,
         )
@@ -119,6 +120,7 @@ def extract_resume_data(cv_text: str, ai_calls: list[AiCall]) -> ResumeData:
             instructions=INSTRUCTIONS,
             input=cv_text,
             text_format=ResumeData,
+            reasoning={"effort": "none"},
             temperature=0,
             store=False,
         )

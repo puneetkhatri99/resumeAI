@@ -1,0 +1,110 @@
+/* Candidates: the add-candidate form and its done card, and the candidate table. */
+
+.candidate-add {
+  max-width: 640px;
+}
+
+.candidate-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.candidate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border: 1px solid #c9d3f5;
+  border-radius: var(--radius);
+  background: var(--blue-tint);
+}
+
+.candidate-actions .alert {
+  flex-basis: 100%;
+}
+
+.candidate-actions-text {
+  flex: 1 1 220px;
+  font-size: 14px;
+  color: #2a3570;
+}
+
+.candidate-done {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.candidate-done-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.candidate-card {
+  padding: 8px;
+}
+
+.candidate-card > .alert {
+  margin: 8px;
+}
+
+/* The table scrolls sideways on a narrow screen instead of widening the page. */
+.candidate-table-wrap {
+  overflow-x: auto;
+}
+
+.candidate-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.candidate-table th,
+.candidate-table td {
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.candidate-table thead th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.candidate-table tbody tr + tr {
+  border-top: 1px solid var(--line-soft);
+}
+
+.candidate-table tbody th {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.candidate-cost {
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-message {
+  padding: 20px 16px;
+  color: var(--ink-2);
+}
+
+.candidate-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}

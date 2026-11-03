@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { AiUsagePanel } from '../features/ai_usage/AiUsagePanel.tsx'
+import { AddCandidateForm } from '../features/candidates/AddCandidateForm.tsx'
+import { CandidateList } from '../features/candidates/CandidateList.tsx'
 import { HealthStatus } from '../features/health/HealthStatus.tsx'
 import type { ResumeIntake } from '../features/resume_intake/api.ts'
 import { IntakeDetail } from '../features/resume_intake/IntakeDetail.tsx'
@@ -37,7 +39,8 @@ function useHashPath(): [string, (path: string) => void] {
 /**
  * Root component: the header band with the navigation, then the page for the address:
  * `#/` the interview form, `#/history` the past interviews, `#/history/{id}` one interview's result,
- * `#/usage` the AI usage panel. Any other address shows the form.
+ * `#/usage` the AI usage panel, `#/candidates/new` the add-candidate form, `#/candidates` the candidate page.
+ * Any other address shows the interview form.
  * A successful submit opens its result at `#/history/{id}` (without fetching it again).
  */
 export function App() {
@@ -63,6 +66,8 @@ export function App() {
   const detailMatch = /^\/history\/(\d+)$/.exec(path)
   const isHistory = path.startsWith('/history')
   const isUsage = path === '/usage'
+  const isAddCandidate = path === '/candidates/new'
+  const isCandidates = path === '/candidates'
   let page
   if (detailMatch) {
     const intakeId = Number(detailMatch[1])
@@ -71,6 +76,10 @@ export function App() {
     page = <IntakeHistory />
   } else if (isUsage) {
     page = <AiUsagePanel />
+  } else if (isAddCandidate) {
+    page = <AddCandidateForm />
+  } else if (isCandidates) {
+    page = <CandidateList />
   } else {
     page = <InterviewForm onSubmitted={showResult} />
   }
@@ -94,11 +103,17 @@ export function App() {
             </div>
           </div>
           <nav className="app-nav" aria-label="Main">
-            <a href="#/" aria-current={isHistory || isUsage ? undefined : 'page'}>
+            <a href="#/" aria-current={isHistory || isUsage || isAddCandidate || isCandidates ? undefined : 'page'}>
               New interview
             </a>
             <a href="#/history" aria-current={isHistory ? 'page' : undefined}>
               Past interviews
+            </a>
+            <a href="#/candidates/new" aria-current={isAddCandidate ? 'page' : undefined}>
+              Add candidate
+            </a>
+            <a href="#/candidates" aria-current={isCandidates ? 'page' : undefined}>
+              Candidates
             </a>
             <a href="#/usage" aria-current={isUsage ? 'page' : undefined}>
               AI usage

@@ -317,7 +317,7 @@ After submit → the form is replaced by:
 Before this, a PDF with no text layer (a scan) got a 422. The user wanted OCR that is fast and cheap.
 
 **What the user chose:**
-- **Engine:** OpenAI vision, through the existing `gpt-4.1-mini` client and key: no new package or system install.
+- **Engine:** OpenAI vision, through the existing `gpt-4.1-mini` client and key: no new package or system install. (Switched to `gpt-5.6-luna` on 2026-11-03, see [model_switch.md](model_switch.md).)
 - **Scope:** scanned PDFs only. Not images, not DOCX.
 - **Triggers:**
   1. The PDF has no text at all: it is OCR'd up front.

@@ -13,6 +13,48 @@ Entry format:
 
 ---
 
+### 2026-11-03: Candidates feature built
+- **Context:** the approved `docs/features/candidates.md` was built by the developer agent: backend slice `candidates`, `POST /api/public/pdf` in `public_api`, `require_ai_budget` and `total_cost` in `ai_usage/service.py`, frontend pages `#/candidates/new` and `#/candidates`. No live call of any kind was made.
+- **Learning:**
+  - **Migration `3aee3f10cd78` (create candidates table) ran on the local Postgres only,** by running alembic with `DATABASE_URL` set to the commented local line from `backend/.env` (env vars override `.env`). Aiven is still at `a06140ee4e9b`; running it there needs the user's go-ahead.
+  - **The six storage settings are now required, and `PUBLIC_RESUME_BUCKET` isn't in `backend/.env` yet,** so the app, pytest and alembic won't start until the user adds it (and on Render). The developer's runs set a dummy `PUBLIC_RESUME_BUCKET` env var.
+  - **The `.env` comment calls `RESUME_BUCKET` the bucket "for the stored formatted resume PDFs",** but the design makes it the private bucket for the originals. Check which bucket is which before the live round trip.
+  - **Tests:** the autouse `fake_s3` (`tests/conftest.py`) replaces the module client's `put_object` / `delete_object`; presigning stays real (it is offline). A test that wants a "fresh request" after a failed commit under `db_session` uses `expunge_all()`, not `rollback()` (that would undo the test's own SAVEPOINT rows).
+  - **Shared CSS:** the upload progress overlay styles moved from `resumeIntake.css` to `app/app.css`, since two features use them now (a pure move).
+  - **Trap again:** a Bash heredoc dropped one backslash from an escaped backslash in a Python test string (the percent-encoding test failed until it was fixed with the Edit tool), and another heredoc failed on nested quotes. Write such scripts with the Write tool.
+- **Applies to:** `candidates`, `public_api`, `ai_usage`, the Aiven migration, `backend/.env` and Render.
+
+### 2026-11-03: Candidates live checks passed (Neon + 1 OpenAI request)
+- **Context:** the approved live checks, run by the main session on a throwaway :8001 backend against local Postgres (scripts in this session's scratchpad: `live_candidates.py`). The user added `PUBLIC_RESUME_BUCKET=public-resume`; `RESUME_BUCKET=resume` is the private one (the `.env` comment above it, "formatted resume PDFs", is stale).
+- **Learning:**
+  - **Neon round trip:** boto3's default (CRC32) PUT checksum works. Public PDF, anonymous GET: 200. Private original, anonymous GET: 403; presigned: 200. **Anonymous LIST is 403 on both buckets,** so branded PDFs can't be enumerated; the open risk in the design is closed. A deleted object's public URL gives 404.
+  - **Upload (1 OpenAI request, synthetic text CV):** `POST /api/candidates` streamed reading, extracting, generating, uploading, done in 8.3 s. `done` held only the URL (`{endpoint}/public-resume/candidates/{uuid}/resume.pdf`), which opened anonymously (200, application/pdf). The list row had the right name, source `manual` and cost $0.0003558. The original came back byte-for-byte through its presigned link. DELETE gave 204, then the PDF URL gave 404.
+  - **Also fixed:** `CvDropzone` takes `storesFile` to hide "Only the text is saved, never the file" on the add-candidate page (user's choice). Stray `backend/.err`/`.out` crash logs were deleted, because they may hold secret fragments and git didn't ignore them.
+- **Aiven migrated (user approved, 2026-11-03):** `3aee3f10cd78` ran on Aiven; `GET /api/candidates` on :8000 answers 200. Committed locally, not pushed (user: "commit, don't push"). Render needs all 6 storage env vars before the next deploy.
+- **Applies to:** `candidates`, the Aiven schema, and Render's env vars.
+
+### 2026-11-03: Candidates feature (Neon storage, candidate page, public PDF API): the user's choices
+- **Context:** the user asked for: an "add candidate" API (CV → AI → branded PDF → upload to storage, returning only the new resume's URL, with SSE progress); a candidate page (name, old resume, new resume, time added, source, AI cost); an AI costing page; and a public secret-key API taking a file and a template number (default 1) that returns the PDF. No queue or workers. Design: `docs/features/candidates.md`.
+- **Learning (the user's decisions):**
+  - **Storage is Neon Object Storage** (S3-compatible, us-east-2), not AWS S3, through **`boto3`** (approved, exact pin). It uses **two buckets**: originals in the private `RESUME_BUCKET`, opened by 1-hour presigned links; new PDFs in a second public bucket the user creates (`PUBLIC_RESUME_BUCKET`), with permanent URLs. Neon: path-style addressing only, no ACL/policy/encryption writes (501), lifecycle rules not enforced, deletes are soft deletes.
+  - **The SSE `done` event carries only the new resume's URL.**
+  - **Source is set by the system:** `manual` (web app) or `api` (the new public endpoint). The new public endpoint **also saves the candidate**; if storage fails, the caller gets an error, not the PDF. The existing candidate_id/resume_id public API stays.
+  - **Recruiters upload; no login yet.** Login is the next feature. Until then, anyone with the Render address can open every CV from the candidate page (accepted for now).
+  - **A delete button now** (row plus both objects).
+  - **"AI costing page" = the existing `#/usage` panel**, plus a per-candidate cost on the candidate page.
+  - **Live checks approved:** 1 Neon round trip with a synthetic file, and 1 OpenAI request (a synthetic text CV through add-candidate). The main session runs them.
+- **Learning (review):** the first design missed that `.env` already held the storage keys and planned for AWS (IAM, SSE-S3, Block Public Access), none of which applies to Neon. Check `.env` key names, and the provider behind any endpoint URL, before designing around a service.
+- **Applies to:** the `candidates` slice, `public_api`, `ai_usage` (`require_ai_budget` moves there), `core/config.py`, the Render setup, and the login feature next.
+
+### 2026-11-03: Model switched to gpt-5.6-luna, and the storage keys in .env
+- **Context:** the user asked for a backup branch before new work (`backup/2026-11-03`, pushed, at `f63efad`), then chose to switch the model first. Design `docs/features/model_switch.md`, approved 2026-11-03.
+- **Learning (the user's decisions):**
+  - **Model `gpt-5.6-luna`** with `reasoning={"effort": "none"}` and `temperature=0` on both calls (OCR and structuring). The "Grado" degree/field split is accepted, and the alias-only model (no dated snapshot) is accepted.
+  - **Live check: 2 requests, on local Postgres, run by the main session,** with the test row deleted afterwards. **Not pushed:** the change stays local until the user says otherwise.
+- **Learning (live check, 2 approved OpenAI requests):** a synthetic 1-page image-only CV with an injection line went to `POST /api/public/resumes` on a throwaway :8001 backend (local DB). It got 200 in 9.7 s, and the PDF came back 200 in 1.6 s. Every field was right and the injected skill and job were ignored. OCR: 3,087 input tokens (3,084 of them cache writes), 150 output, $0.0009516. Structuring: 953 input, 207 output, $0.000439. The `public_resumes` row was deleted, but local `ai_calls` 248 and 249 stay.
+- **Learning (bug):** the user added 5 storage keys to `backend/.env` (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET`). Undeclared, they stopped the app, pytest and alembic from starting, the same trap as 2026-10-22, and the pydantic error printed parts of the secret values. Fix: the keys are declared as optional in `Settings` (secrets as `SecretStr`) and added to `.env.example`, unused until the candidates feature is built. The endpoint is a Neon host (`*.aws.neon.tech`), not AWS itself.
+- **Applies to:** `resume_structuring`, `ai_usage`, `app/core/config.py`, and the candidates feature (`docs/features/candidates.md`).
+
 ### 2026-11-02: Public API for outside systems (Loxo): the user's choices
 - **Context:** the user asked for two public endpoints: send a resume with the caller's ids and get the extracted data; send the ids and a template id and get the formatted PDF. Plan approved 2026-11-02; built as the `public_api` slice (`docs/features/public_api.md`).
 - **Learning (the user's decisions):**
@@ -23,7 +65,7 @@ Entry format:
   - Not included: storing the CV text or file, listing public resumes, a frontend, per-client keys.
 - **Learning (found while building):**
   - **`ai_calls.resume_intake_id` only links to `resume_intakes`,** so public uploads' calls are stored unlinked; they still count toward the spending cap. The public POST shares the 30/hour upload bucket (`UPLOAD_PATHS` in `core/rate_limit.py`).
-  - **The migration isn't on Aiven yet** (`a06140ee4e9b`, needs the user's go-ahead), so the new slice's DB tests fail there with `UndefinedTable` until it runs. To verify before that, a scratch pytest plugin created the table on `db_session.bind` (the outer, always rolled-back transaction; Postgres DDL is transactional) and every test passed. Create it on the connection, not the session: the router's `db.rollback()` would roll back a SAVEPOINT holding it.
+  - **The migration ran on Aiven on 2026-11-02** (`a06140ee4e9b`, user approved "migrate, then push"; `main` pushed as `f63efad`). Before that, the new slice's DB tests failed there with `UndefinedTable`. To verify before that, a scratch pytest plugin created the table on `db_session.bind` (the outer, always rolled-back transaction; Postgres DDL is transactional) and every test passed. Create it on the connection, not the session: the router's `db.rollback()` would roll back a SAVEPOINT holding it.
   - **Live check (1 approved OpenAI call, 2026-11-02):** the user kept Aiven unmigrated ("not yet") and chose the local Postgres instead. The local DB (the commented `DATABASE_URL` line in `backend/.env`) was upgraded to `a06140ee4e9b`, and a throwaway backend on :8001 used it. Wrong key → 401; a synthetic TXT CV → 200 in 5.5 s with every field right; its PDF → 200 in 1.7 s (76 KB); `template_id=2` → 404. The pair `cand-demo-1`/`res-demo-1` stays in the local `public_resumes` table.
   - **Consumer guide:** `docs/public_api_guide.md` (user asked for an MD file; also a shared Claude Doc). It never contains the key. A random `PUBLIC_API_KEY` (`secrets.token_urlsafe(32)`) was added to `backend/.env` on 2026-11-02; Render needs the same value set by hand.
 - **Applies to:** `public_api`, `ai_usage`, `core/rate_limit.py`, and the Aiven migration step.

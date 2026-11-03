@@ -1,6 +1,6 @@
-"""Tests for the public API (/api/public). OpenAI is replaced by the autouse fake_openai fixture
-and render_pdf by FakeRenderer, so no test calls OpenAI or starts Chromium. Every request that
-can store something goes through db_session and is rolled back.
+"""Tests for the public API (/api/public). OpenAI is replaced by the autouse fake_openai fixture,
+storage by fake_s3 and render_pdf by FakeRenderer, so no test calls OpenAI, Neon or Chromium.
+Every request that can store something goes through db_session and is rolled back.
 """
 
 from decimal import Decimal
@@ -15,12 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.features.ai_usage.models import AiCall
+from app.features.ai_usage.service import AI_SPEND_CAP_MESSAGE
+from app.features.candidates.models import Candidate
+from app.features.candidates.service import STORE_FAILED_MESSAGE
 from app.features.public_api import router
 from app.features.public_api.models import PublicResume
-from app.features.public_api.router import AI_SPEND_CAP_MESSAGE, INVALID_KEY_MESSAGE
+from app.features.public_api.router import INVALID_KEY_MESSAGE
 from app.features.resume_intake.service import UNSUPPORTED_TYPE_MESSAGE
 from app.features.resume_structuring.service import AI_FAILED_MESSAGE, MISSING_CONTACT_MESSAGE
-from tests.conftest import FAKE_RESUME_DATA, FakeOpenAI
+from tests.conftest import FAKE_CALL_COST, FAKE_RESUME_DATA, FakeOpenAI, FakeS3
 
 URL = "/api/public/resumes"
 API_KEY = "test-public-key"
@@ -73,7 +76,9 @@ def max_ai_call_id(db_session: Session) -> int:
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-API-Key": "wrong"}, {"X-API-Key": ""}])
-@pytest.mark.parametrize("method, path", [("POST", URL), ("GET", PDF_URL)])
+@pytest.mark.parametrize(
+    "method, path", [("POST", URL), ("GET", PDF_URL), ("POST", "/api/public/pdf")]
+)
 def test_a_missing_or_wrong_key_is_401(
     client: TestClient, fake_openai: FakeOpenAI, headers: dict[str, str], method: str, path: str
 ) -> None:
@@ -268,3 +273,118 @@ def test_an_unknown_template_is_404(
     assert response.status_code == 404
     assert response.json() == {"detail": "Template not found."}
     assert fake_renderer.pages == []
+
+
+# --- POST /api/public/pdf ---
+
+NEW_PDF_URL = "/api/public/pdf"
+
+
+def candidates_after(db_session: Session, last_id: int) -> list[Candidate]:
+    """The candidates stored after `last_id`."""
+    return list(db_session.scalars(select(Candidate).where(Candidate.id > last_id)))
+
+
+def max_candidate_id(db_session: Session) -> int:
+    """The newest candidates id, so a test can find the rows its request added."""
+    return db_session.scalar(select(func.coalesce(func.max(Candidate.id), 0)))
+
+
+def test_a_cv_comes_back_as_the_branded_pdf_and_is_saved_as_an_api_candidate(
+    client: TestClient, db_session: Session, fake_s3: FakeS3
+) -> None:
+    last_candidate = max_candidate_id(db_session)
+    last_call_id = max_ai_call_id(db_session)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 200
+    assert response.content == FAKE_PDF
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == (
+        "inline; filename*=UTF-8''MinistryHub%20-%20Jane%20Doe.pdf"
+    )
+    assert response.headers["cache-control"] == "no-store"
+    [candidate] = candidates_after(db_session, last_candidate)
+    assert (candidate.name, candidate.source, candidate.file_type) == ("Jane Doe", "api", "txt")
+    assert candidate.ai_cost_usd == FAKE_CALL_COST
+    assert (
+        fake_s3.objects[(settings.public_resume_bucket, candidate.resume_key)]["Body"] == FAKE_PDF
+    )
+    assert (settings.resume_bucket, candidate.original_key) in fake_s3.objects
+    calls = db_session.execute(
+        select(AiCall.call_type, AiCall.resume_intake_id).where(AiCall.id > last_call_id)
+    ).all()
+    assert [tuple(call) for call in calls] == [("structuring", None)]
+
+
+def test_template_id_1_is_accepted(client: TestClient, db_session: Session) -> None:
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"template_id": "1"}, files={"file": TXT_CV}
+    )
+
+    assert response.status_code == 200
+
+
+def test_an_unknown_template_is_404_before_any_ai_call(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_s3: FakeS3
+) -> None:
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"template_id": "2"}, files={"file": TXT_CV}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Template not found."}
+    assert fake_openai.calls == []
+    assert fake_s3.objects == {}
+
+
+def test_a_non_integer_template_is_422(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI
+) -> None:
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"template_id": "one"}, files={"file": TXT_CV}
+    )
+
+    assert response.status_code == 422
+    assert fake_openai.calls == []
+
+
+def test_a_storage_failure_is_502_without_the_pdf(
+    client: TestClient, db_session: Session, fake_s3: FakeS3
+) -> None:
+    fake_s3.fail_put_buckets.add(settings.public_resume_bucket)
+    last_candidate = max_candidate_id(db_session)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": STORE_FAILED_MESSAGE}
+    assert fake_s3.objects == {}
+    assert candidates_after(db_session, last_candidate) == []
+
+
+def test_an_ai_failure_on_the_pdf_endpoint_is_502_and_stores_nothing(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_s3: FakeS3
+) -> None:
+    fake_openai.error = openai.APITimeoutError(request=httpx2.Request("POST", "https://x"))
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": AI_FAILED_MESSAGE}
+    assert fake_s3.objects == {}
+
+
+def test_the_spending_cap_is_402_on_the_pdf_endpoint(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", Decimal(0))
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 402
+    assert fake_openai.calls == []

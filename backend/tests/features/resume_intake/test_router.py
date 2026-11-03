@@ -20,9 +20,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.features.ai_usage.models import AiCall
-from app.features.ai_usage.service import add_ai_calls, record_ai_call
+from app.features.ai_usage.service import (
+    AI_SPEND_CAP_MESSAGE,
+    DATABASE_DOWN_MESSAGE,
+    add_ai_calls,
+    record_ai_call,
+)
 from app.features.resume_intake.models import ResumeIntake
-from app.features.resume_intake.router import AI_SPEND_CAP_MESSAGE, DATABASE_DOWN_MESSAGE
 from app.features.resume_intake.schemas import ResumeIntakeResponse
 from app.features.resume_intake.service import EMPTY_MESSAGE, LINKS_HEADING, TOO_MANY_PAGES_MESSAGE
 from app.features.resume_structuring.schemas import ResumeData

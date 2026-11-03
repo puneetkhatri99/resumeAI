@@ -1,6 +1,6 @@
 # ai_usage
 
-**Purpose:** record every OpenAI call the app makes (model, call type, tokens, cost) and report usage and cost for the AI usage panel. Each call is priced when it is recorded, at the model that made it, so the cost stays right after a switch to another model (OpenAI removes gpt-4.1-mini on 2027-01-14). Design: [docs/features/ai_usage.md](../../../../docs/features/ai_usage.md).
+**Purpose:** record every OpenAI call the app makes (model, call type, tokens, cost) and report usage and cost for the AI usage panel. Each call is priced when it is recorded, at the model that made it, so the cost stays right after a switch to another model. The app switched from gpt-4.1-mini (removed by OpenAI on 2027-01-14) to gpt-5.6-luna on 2026-11-03 ([docs/features/model_switch.md](../../../../docs/features/model_switch.md)); older calls keep their gpt-4.1-mini model and cost. Design: [docs/features/ai_usage.md](../../../../docs/features/ai_usage.md).
 
 ## API
 `GET /api/ai_usage?tz=<IANA time zone>` (`tz` is required, 1–64 characters, e.g. `Asia/Kolkata`). Days and "this month" follow that zone. Answers `AiUsageReport`:
@@ -29,7 +29,9 @@ Calls are collected in a list while an upload runs, then stored with the intake 
 - `save_ai_calls_without_intake(db, ai_calls)`: for a failed upload; rolls back, adds the calls unlinked and commits. A database error is logged (type only) and swallowed.
 - `intake_cost_column(intake_id)`: a scalar subquery summing an intake's call costs (`resume_intake`'s past-interviews list uses it for `ai_cost_usd`).
 - `call_cost(model, input, cached, cache_write, output) -> Decimal | None`: `((input − cached − write)·input rate + cached·cached rate + write·cache-write rate + output·output rate) / 1M`; None for a model not in `PRICES`.
-- `ai_spend_cap_reached(db) -> bool`: the **AI spending cap** (2026-10-27). True once the all-time `COALESCE(SUM(cost_usd), 0)` over every `ai_calls` row (the panel's `all_time` cost) is at or above `settings.ai_spend_cap_usd` (env `AI_SPEND_CAP_USD`, default $5). Unpriced calls count as $0. `resume_intake` asks it before each upload and answers **402** "AI spending limit reached. Uploads are paused." when it is reached. Raises `SQLAlchemyError` when the database is down. Design: [docs/features/rate_limit_and_spend_cap.md](../../../../docs/features/rate_limit_and_spend_cap.md).
+- `ai_spend_cap_reached(db) -> bool`: the **AI spending cap** (2026-10-27). True once the all-time `COALESCE(SUM(cost_usd), 0)` over every `ai_calls` row (the panel's `all_time` cost) is at or above `settings.ai_spend_cap_usd` (env `AI_SPEND_CAP_USD`, default $5). Unpriced calls count as $0. Raises `SQLAlchemyError` when the database is down.
+- `require_ai_budget(db)` (moved here from the routers on 2026-11-03, so there is one copy): the FastAPI dependency on every upload (`resume_intake`, `public_api`'s two POSTs, `candidates`). It asks `ai_spend_cap_reached` and raises `HTTPException` **402** `AI_SPEND_CAP_MESSAGE` ("AI spending limit reached. Uploads are paused.") when the cap is reached, or **503** `DATABASE_DOWN_MESSAGE` on a `SQLAlchemyError`: the one HTTP concern in this service, accepted to keep a single copy.
+- `total_cost(ai_calls) -> Decimal | None`: the sum of the priced calls in a list; None when none is priced. `candidates` stores it as the candidate's `ai_cost_usd`. Design: [docs/features/rate_limit_and_spend_cap.md](../../../../docs/features/rate_limit_and_spend_cap.md).
 - `usage_report(db, tz)`: sets the zone for the transaction (`set_config('TimeZone', tz, true)`) and runs the report queries. An unknown zone is a Postgres `DataError` (SQLSTATE 22023), raised as `UnknownTimeZoneError`.
 - `AiCall` is re-exported here, so other features type their lists without importing `models.py`.
 
@@ -39,10 +41,10 @@ This module never imports `resume_intake` (which imports it). The router fills `
 
 | Model | Input | Cached input | Cache write | Output |
 |---|---|---|---|---|
-| gpt-4.1-mini (in use) | 0.40 | 0.10 | 0.40 | 1.60 |
+| gpt-4.1-mini | 0.40 | 0.10 | 0.40 | 1.60 |
 | gpt-5.4-mini | 0.75 | 0.075 | 0.75 | 4.50 |
 | gpt-5.4-nano | 0.20 | 0.02 | 0.20 | 1.25 |
-| gpt-5.6-luna | 0.20 | 0.02 | 0.25 | 1.20 |
+| gpt-5.6-luna (in use) | 0.20 | 0.02 | 0.25 | 1.20 |
 | gpt-6-luna | 0.10 | 0.01 | 0.125 | 0.50 |
 
 Cache writes cost 1.25× input from GPT-5.6 on; for older models they cost the input rate. The table is edited by hand when OpenAI changes a price; an edit prices new calls only.
@@ -68,6 +70,6 @@ Table `ai_calls` (migration `alembic/versions/7e1f0a3f150f_create_ai_calls_table
 
 ## Tests
 `backend/tests/features/ai_usage/`
-- `test_service.py` (no database): the exact gpt-6-luna cost with four rates; a gpt-4.1-mini cache write costs the input rate; an unknown model costs None; `OPENAI_MODEL` is in `PRICES` (fails the day the model is switched to an unpriced one); `record_ai_call` stores tokens and cost, skips a missing `usage`, and reads a missing detail count, or a null `input_tokens_details`, as 0. The spending cap tests use Postgres through `db_session`, with the cap set relative to the total already in the dev database: below the cap it isn't reached, at and above it is, and an unpriced call counts as $0.
+- `test_service.py` (no database): the exact gpt-6-luna cost with four rates; a gpt-4.1-mini cache write costs the input rate; an unknown model costs None; `OPENAI_MODEL` is in `PRICES` (fails the day the model is switched to an unpriced one); `record_ai_call` stores `OPENAI_MODEL`, tokens and cost (`FAKE_CALL_COST`, $0.000524 at gpt-5.6-luna prices), skips a missing `usage`, and reads a missing detail count, or a null `input_tokens_details`, as 0. The spending cap tests use Postgres through `db_session`, with the cap set relative to the total already in the dev database: below the cap it isn't reached, at and above it is, and an unpriced call counts as $0. `total_cost` sums only priced calls and is None for none; `require_ai_budget` passes below the cap, is 402 at it and 503 with the database down.
 - `test_router.py` (Postgres, through `db_session`; the `usage_db` fixture deletes every AI call inside the rolled-back transaction first): the empty report with $0 costs; this month vs a call 40 days ago, and the month boundary in Asia/Tokyo; the 30-day window and days newest first; an unpriced model costs $0 with `unpriced_calls` 1 while its recent call keeps a null cost; a mixed group and an all-unpriced day; grouping by call type; Asia/Tokyo vs UTC days; recent calls with the candidate's name or null, capped at 50, the last stored first on a tie; deleting an intake keeps its calls unlinked; 422 for an unknown, missing or oversized zone; 503 with the database down. The QA pass's extra tests were merged in here (rule 5 naming).
 - The recording itself is tested in `resume_structuring` and `resume_intake` (see their READMEs), and so is the upload's 402.
