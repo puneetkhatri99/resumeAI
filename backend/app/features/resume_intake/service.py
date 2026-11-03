@@ -27,8 +27,10 @@ from app.features.ai_usage.service import AiCall, add_ai_calls, intake_cost_colu
 from app.features.resume_intake.models import ResumeIntake
 from app.features.resume_intake.schemas import FileType, InterviewAnswers, clean_text
 from app.features.resume_structuring.service import (
+    AiExtractionError,
     MissingContactError,
     ResumeData,
+    ResumeStructuringError,
     extract_resume_data,
     transcribe_pdf,
 )
@@ -81,6 +83,25 @@ class UnsupportedFileTypeError(Exception):
 
 class ResumeExtractionError(Exception):
     """The CV has a supported type but no usable text can be read from it (HTTP 422)."""
+
+
+# Every error extract_text and structure_resume raise for a CV. Each upload endpoint catches these
+# and answers cv_error_status(exc) with str(exc), so a new error type is added here once.
+CV_ERRORS = (
+    UnsupportedFileTypeError,
+    ResumeExtractionError,
+    ResumeStructuringError,
+    AiExtractionError,
+)
+
+
+def cv_error_status(exc: Exception) -> int:
+    """The HTTP status for one of CV_ERRORS: 415 wrong file type, 502 AI call failed, else 422."""
+    if isinstance(exc, UnsupportedFileTypeError):
+        return 415
+    if isinstance(exc, AiExtractionError):
+        return 502
+    return 422
 
 
 def save_resume_intake(

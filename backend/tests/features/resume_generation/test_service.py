@@ -5,6 +5,10 @@ starts Chromium (user-approved); no test calls OpenAI.
 
 import ctypes
 import re
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from html.parser import HTMLParser
 
@@ -15,6 +19,7 @@ import pytest
 
 from app.features.resume_generation import service
 from app.features.resume_generation.service import (
+    MAX_CONCURRENT_RENDERS,
     PDF_FAILED_MESSAGE,
     PdfRenderError,
     build_resume_html,
@@ -358,6 +363,40 @@ def test_playwright_failure_becomes_pdf_render_error(monkeypatch: pytest.MonkeyP
     with pytest.raises(PdfRenderError) as error:
         render_pdf("<p>Jane Doe</p>")
     assert str(error.value) == PDF_FAILED_MESSAGE
+
+
+def test_at_most_two_renders_run_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each fake "browser" stays open briefly, then fails; 6 threads must never overlap past 2."""
+    lock = threading.Lock()
+    running, peak = 0, 0
+
+    @contextmanager
+    def slow_sync_playwright() -> Iterator[None]:
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        try:
+            time.sleep(0.05)
+            raise playwright.sync_api.Error("boom")
+        finally:
+            with lock:
+                running -= 1
+        yield  # never reached; makes this a generator
+
+    monkeypatch.setattr(service, "sync_playwright", slow_sync_playwright)
+
+    def render_once() -> None:
+        with pytest.raises(PdfRenderError):
+            render_pdf("<p>Jane Doe</p>")
+
+    threads = [threading.Thread(target=render_once) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert peak == MAX_CONCURRENT_RENDERS == 2
 
 
 def test_real_render_has_a_header_and_footer_on_every_page() -> None:

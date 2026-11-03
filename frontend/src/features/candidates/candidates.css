@@ -183,11 +183,11 @@
   color: var(--muted);
 }
 
-.candidate-card {
+.candidate-list-card {
   padding: 8px;
 }
 
-.candidate-card > .alert {
+.candidate-list-card > .alert {
   margin: 8px;
 }
 

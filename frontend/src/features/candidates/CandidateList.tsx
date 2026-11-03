@@ -72,7 +72,7 @@ export function CandidateList() {
         </div>
       </section>
       <div className="page-container page-body">
-        <section className="card candidate-card" aria-label="Candidates">
+        <section className="card candidate-list-card" aria-label="Candidates">
           {deleteError && (
             <p role="alert" className="alert alert-error">
               {deleteError}

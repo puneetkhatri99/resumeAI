@@ -897,7 +897,14 @@ def test_list_before_the_first_id_is_empty(client: TestClient, db_session: Sessi
 
 
 @pytest.mark.parametrize(
-    "params", [{"limit": 0}, {"limit": 101}, {"before_id": 0}, {"limit": "many"}]
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"before_id": 0},
+        {"before_id": 2_147_483_648},
+        {"limit": "many"},
+    ],
 )
 def test_list_rejects_bad_paging(client: TestClient, params: dict[str, Any]) -> None:
     assert client.get(URL, params=params).status_code == 422
@@ -924,6 +931,19 @@ def test_unknown_intake_is_404(client: TestClient, db_session: Session) -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Intake not found."}
+
+
+@pytest.mark.parametrize(
+    ("intake_id", "status_code"),
+    [("2147483647", 404), ("2147483648", 422), ("99999999999", 422), ("0", 422)],
+)
+def test_id_beyond_the_database_integer_range_is_not_reported_as_database_down(
+    client: TestClient, db_session: Session, intake_id: str, status_code: int
+) -> None:
+    """The id column is a 32-bit integer: a bigger id is a 422, not a DataError reported as 503."""
+    response = client.get(f"{URL}/{intake_id}")
+
+    assert response.status_code == status_code, response.text
 
 
 @pytest.mark.parametrize("path", ["", "/1"])

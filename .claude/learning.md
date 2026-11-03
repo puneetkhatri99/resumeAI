@@ -13,6 +13,28 @@ Entry format:
 
 ---
 
+### 2026-11-03: Review fixes: id range, Chromium limit, one CV-error mapping
+- **Context:** the user pasted three review findings and said "fix".
+- **Learning:**
+  - **`resume_intake` read an intake by id and paged by `before_id` with no upper limit,** so `GET /api/resume_intake/99999999999` was a false 503 (the 2026-10-22 trap again). `MAX_ID` now lives once in `app/core/database.py`, and the auth, candidates, resume_generation and resume_intake routers all use it.
+  - **PDF rendering is capped at 2 Chromium browsers at once** (`render_slots`, a `threading.Semaphore` in `resume_generation/service.py`); more requests wait. Chromium's memory on Render wasn't measured.
+  - **The four upload endpoints share one CV-error mapping:** `CV_ERRORS` and `cv_error_status` in `resume_intake/service.py`. Each router still handles its own storage, PDF and database errors. The review suggested putting the storage error in the shared mapping too, but `resume_intake` can't import `candidates.FileStorageError`: candidates already imports resume_intake, so that would be a circular import.
+  - Backend: 487 passed (local DB).
+- **Applies to:** every endpoint that takes an integer id, `render_pdf`, and any new CV error type (add it to `CV_ERRORS`).
+
+### 2026-11-03: UI redesign with a dark/light toggle; candidates are the showcase
+- **Context:** the user asked for a beautiful frontend with a dark/light toggle and an "interview section" holding every interview function, with Add candidate and Candidates shown off, and "extremely smooth" UX.
+- **Learning (the user's decisions):**
+  - **Top bar, not a sidebar:** Candidates, an **Interview** menu (New interview, Past interviews), AI usage, a yellow **Add candidate** button, the theme switch, and an Account menu (Change password, Admin, Log out).
+  - **`#/` is the candidate page;** the interview form moved to `#/interview`.
+  - **Theme follows the system until toggled,** then the pick is remembered (`localStorage` key `theme`).
+  - **The whole app is restyled,** with behaviour and APIs unchanged.
+- **Learning (found while building):**
+  - **Class clash:** `.candidate-card` is both the structured-resume header card (a flex row, `structuredResume.css`) and the old candidate-list card, so the list's table only filled part of its card. The list now uses `.candidate-list-card`. CSS is global: check a class name with grep before reusing it.
+  - **Playwright's `fullPage` screenshot shows hidden dropdown panels ghosted** under a sticky header, although their computed style is `visibility: hidden; opacity: 0`; a viewport screenshot is clean. Judge menus from viewport shots.
+  - Closing the phone menu on a page change is derived (`menuOpenOn === path`), not set in an effect; oxlint's `set-state-in-effect` flags the effect version.
+- **Applies to:** `src/app/` (shell, `app.css` tokens), every page's title row, the candidates pages, and any e2e that opens `#/` expecting the interview form.
+
 ### 2026-11-03: Login (auth slice) built
 - **Context:** the developer agent built `docs/features/auth.md`: backend slice `auth`, the `login` rate-limit bucket, the lifespan bootstrap, the guards in `app/main.py`; frontend `LoginPage`, `ChangePasswordForm`, `AdminPage`, `LogoutButton`, `apiRequest` and `UNAUTHORIZED_EVENT` in `shared/api/client.ts`. No live call of any kind.
 - **Learning:**

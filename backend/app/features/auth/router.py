@@ -15,7 +15,7 @@ from fastapi.security import APIKeyCookie
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import MAX_ID, get_db
 from app.features.auth.models import User
 from app.features.auth.schemas import (
     CurrentUser,
@@ -46,8 +46,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 SESSION_COOKIE = "session"
 COOKIE_PATH = "/api"
-# Postgres' integer id column: a bigger id would be a DataError, wrongly reported as a 503.
-MAX_ID = 2_147_483_647
 DATABASE_DOWN_MESSAGE = "The database is unavailable. Try again later."
 NOT_LOGGED_IN_MESSAGE = "Not logged in."
 WRONG_LOGIN_MESSAGE = "Email or password is incorrect."

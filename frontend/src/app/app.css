@@ -477,6 +477,8 @@ a:hover {
   .nav-menu-panel button {
     height: auto;
     min-height: 48px;
+    border-radius: 12px;
+    color: var(--text);
     font-size: 16px;
   }
 

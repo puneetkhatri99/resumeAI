@@ -9,6 +9,7 @@ page holds AI output.
 import base64
 import logging
 import re
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,11 @@ from playwright.sync_api import sync_playwright
 from app.features.resume_structuring.service import ResumeData
 
 logger = logging.getLogger(__name__)
+
+# At most this many headless Chromium browsers at once (~150-250 MB each): more requests wait their
+# turn instead of running a small Render instance out of memory and killing every upload with it.
+MAX_CONCURRENT_RENDERS = 2
+render_slots = threading.Semaphore(MAX_CONCURRENT_RENDERS)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 ASSETS_DIR = TEMPLATES_DIR / "assets"
@@ -203,10 +209,15 @@ def render_pdf(html: str) -> bytes:
 
     Any Playwright failure (Chromium missing, a crash, a timeout) is logged and raised as
     PdfRenderError. Must run in a thread with no running asyncio loop (Playwright's sync API).
+    At most MAX_CONCURRENT_RENDERS run at once; the rest wait.
     """
     # shortcut: one browser launch per PDF (~1–2 s); keep a shared browser if volume grows
     try:
-        with sync_playwright() as playwright, playwright.chromium.launch() as browser:
+        with (
+            render_slots,
+            sync_playwright() as playwright,
+            playwright.chromium.launch() as browser,
+        ):
             page = browser.new_page(java_script_enabled=False)
             page.route("**/*", lambda route: route.abort())
             page.set_content(html)

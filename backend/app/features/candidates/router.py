@@ -13,7 +13,7 @@ from fastapi.sse import EventSourceResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import MAX_ID, get_db
 from app.features.ai_usage.service import (
     DATABASE_DOWN_MESSAGE,
     AiCall,
@@ -31,20 +31,17 @@ from app.features.candidates.service import (
 )
 from app.features.resume_generation.service import PdfRenderError, build_resume_html, render_pdf
 from app.features.resume_intake.service import (
-    ResumeExtractionError,
-    UnsupportedFileTypeError,
+    CV_ERRORS,
+    cv_error_status,
     extract_text,
     structure_resume,
 )
-from app.features.resume_structuring.service import AiExtractionError, ResumeStructuringError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 
 PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
-# Postgres' integer id column: a bigger id would be a DataError, wrongly reported as a 503.
-MAX_ID = 2_147_483_647
 
 
 # Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
@@ -81,11 +78,9 @@ def create_candidate(
         candidate = store_candidate(db, data, file_type, pdf, resume.name, "manual", ai_calls)
         # Read inside the try: after the commit, reading the key reloads the row.
         new_resume_url = public_url(candidate.resume_key)
-    except UnsupportedFileTypeError as exc:
-        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
-    except (ResumeExtractionError, ResumeStructuringError) as exc:
-        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
-    except (AiExtractionError, FileStorageError) as exc:
+    except CV_ERRORS as exc:
+        status_code, detail = cv_error_status(exc), str(exc)
+    except FileStorageError as exc:
         status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
     except PdfRenderError as exc:
         status_code, detail = status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)

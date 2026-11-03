@@ -19,10 +19,10 @@ from sqlalchemy.orm import Session
 
 from app import main
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import MAX_ID, get_db
 from app.core.rate_limit import LOGIN_LIMIT
 from app.features.auth.models import User, UserSession
-from app.features.auth.router import MAX_ID, SESSION_COOKIE
+from app.features.auth.router import SESSION_COOKIE
 from app.features.auth.service import hash_password, hash_token
 from app.features.public_api.router import INVALID_KEY_MESSAGE
 from app.main import app

@@ -18,6 +18,10 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(bind=engine)
 
+# The largest value of a Postgres integer id column. Id parameters cap at it, so a bigger id is a
+# 422 instead of a DataError that the routers would wrongly report as "database unavailable".
+MAX_ID = 2_147_483_647
+
 
 class Base(DeclarativeBase):
     """Parent class for every SQLAlchemy model in app/features/<feature>/models.py."""

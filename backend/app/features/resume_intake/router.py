@@ -7,12 +7,12 @@ import logging
 from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, UploadFile, status
 from fastapi.sse import EventSourceResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import MAX_ID, get_db
 from app.features.ai_usage.service import (
     AiCall,
     require_ai_budget,
@@ -30,15 +30,14 @@ from app.features.resume_intake.schemas import (
     WorkMode,
 )
 from app.features.resume_intake.service import (
-    ResumeExtractionError,
-    UnsupportedFileTypeError,
+    CV_ERRORS,
+    cv_error_status,
     extract_text,
     get_resume_intake,
     list_resume_intakes,
     save_resume_intake,
     structure_resume,
 )
-from app.features.resume_structuring.service import AiExtractionError, ResumeStructuringError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/resume_intake", tags=["resume_intake"])
@@ -51,7 +50,7 @@ MAX_PAGE_SIZE = 100
 @router.get("", response_model=IntakeList)
 def list_intakes(
     db: Annotated[Session, Depends(get_db)],
-    before_id: Annotated[int | None, Query(ge=1)] = None,
+    before_id: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = PAGE_SIZE,
 ) -> IntakeList:
     """Past intakes, newest first: `limit` of them, only those older than `before_id` when given.
@@ -67,7 +66,9 @@ def list_intakes(
 
 
 @router.get("/{intake_id}", response_model=ResumeIntakeResponse)
-def read_intake(intake_id: int, db: Annotated[Session, Depends(get_db)]) -> ResumeIntakeResponse:
+def read_intake(
+    intake_id: Annotated[int, Path(ge=1, le=MAX_ID)], db: Annotated[Session, Depends(get_db)]
+) -> ResumeIntakeResponse:
     """One stored intake, in the same shape as the upload's "done" result.
 
     404 if there is no intake with that id; 503 if the database is unavailable.
@@ -132,12 +133,8 @@ def create_intake(
         intake = save_resume_intake(
             db, file.filename or "", file_type, text, structured_data, answers, ai_calls
         )
-    except UnsupportedFileTypeError as exc:
-        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
-    except (ResumeExtractionError, ResumeStructuringError) as exc:
-        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
-    except AiExtractionError as exc:
-        status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
+    except CV_ERRORS as exc:
+        status_code, detail = cv_error_status(exc), str(exc)
     except SQLAlchemyError:
         # hide_parameters on the engine keeps the CV text and answers out of this log.
         logger.exception("Could not store the resume intake: database error")

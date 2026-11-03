@@ -41,16 +41,12 @@ from app.features.public_api.schemas import PublicId, PublicResumeResponse
 from app.features.public_api.service import get_public_resume, save_public_resume
 from app.features.resume_generation.service import PdfRenderError, build_resume_html, render_pdf
 from app.features.resume_intake.service import (
-    ResumeExtractionError,
-    UnsupportedFileTypeError,
+    CV_ERRORS,
+    cv_error_status,
     extract_text,
     structure_resume,
 )
-from app.features.resume_structuring.service import (
-    AiExtractionError,
-    ResumeData,
-    ResumeStructuringError,
-)
+from app.features.resume_structuring.service import ResumeData
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +101,8 @@ def create_public_resume(
         file_type, text, read_by_ocr = extract_text(data, ai_calls)
         _, structured_data = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
         save_public_resume(db, candidate_id, resume_id, structured_data, ai_calls)
-    except UnsupportedFileTypeError as exc:
-        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
-    except (ResumeExtractionError, ResumeStructuringError) as exc:
-        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
-    except AiExtractionError as exc:
-        status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
+    except CV_ERRORS as exc:
+        status_code, detail = cv_error_status(exc), str(exc)
     except SQLAlchemyError:
         # hide_parameters on the engine keeps the CV data out of this log.
         logger.exception("Could not store the public resume: database error")
@@ -190,11 +182,9 @@ def create_pdf(
         _, resume = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
         pdf = render_pdf(build_resume_html(resume, date.today()))
         store_candidate(db, data, file_type, pdf, resume.name, "api", ai_calls)
-    except UnsupportedFileTypeError as exc:
-        status_code, detail = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)
-    except (ResumeExtractionError, ResumeStructuringError) as exc:
-        status_code, detail = status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)
-    except (AiExtractionError, FileStorageError) as exc:
+    except CV_ERRORS as exc:
+        status_code, detail = cv_error_status(exc), str(exc)
+    except FileStorageError as exc:
         status_code, detail = status.HTTP_502_BAD_GATEWAY, str(exc)
     except PdfRenderError as exc:
         status_code, detail = status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)

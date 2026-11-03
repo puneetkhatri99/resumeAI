@@ -3,7 +3,7 @@
 **Purpose:** the login page, logging out, changing your own password, and the admin page. Design: [docs/features/auth.md](../../../../docs/features/auth.md); backend: [backend/app/features/auth/README.md](../../../../backend/app/features/auth/README.md).
 
 ## How the app uses it
-`src/app/App.tsx` calls `getCurrentUser()` (`GET /api/auth/me`) on load. While nobody is logged in (that call fails, or any later call answers 401), the header shows no navigation and `LoginPage` replaces the page; the hash address is kept, so after login the user lands where they meant to go. Every helper in `shared/api/client.ts` dispatches `UNAUTHORIZED_EVENT` on a 401, and `App` listens for it. Unsaved form input is lost then (rare with 12-hour sessions). Logged in, the header adds **Change password** (`#/password`), **Admin** (`#/admin`, admins only) and **Log out**. The session is an `HttpOnly` cookie the browser sends itself, including on the branded PDF opened in a new tab; no code reads it.
+`src/app/App.tsx` calls `getCurrentUser()` (`GET /api/auth/me`) on load. While nobody is logged in (that call fails, or any later call answers 401), the header shows no navigation and `LoginPage` replaces the page; the hash address is kept, so after login the user lands where they meant to go. Every helper in `shared/api/client.ts` dispatches `UNAUTHORIZED_EVENT` on a 401, and `App` listens for it. Unsaved form input is lost then (rare with 12-hour sessions). Logged in, the top bar's **Account** menu (the user's initial) holds their email, **Change password** (`#/password`), **Admin** (`#/admin`, admins only) and **Log out**. The session is an `HttpOnly` cookie the browser sends itself, including on the branded PDF opened in a new tab; no code reads it.
 
 ## Pages and components
 - **`LoginPage`**: email (`autocomplete="username"`) and password (`current-password`), **Log in** (disabled, "Logging in…", while waiting). Shows the backend's message for 401 ("Email or password is incorrect."), 429 and 503, and "Could not reach the server…" on a network failure.
@@ -13,7 +13,7 @@
 
 ## Files
 - `api.ts`: types `CurrentUser`, `Recruiter`; `MIN_PASSWORD_LENGTH`; `login`, `logout`, `getCurrentUser`, `changePassword`, `listRecruiters`, `addRecruiter`, `resetRecruiterPassword`, `removeRecruiter`, all through `shared/api/client.ts` (`apiGet`, `apiRequest`).
-- `LoginPage.tsx`, `ChangePasswordForm.tsx`, `AdminPage.tsx`, `LogoutButton.tsx`, `auth.css` (form width, the notice and the recruiter table). The header's Log out button style is in `src/app/app.css`.
+- `LoginPage.tsx`, `ChangePasswordForm.tsx`, `AdminPage.tsx`, `LogoutButton.tsx`, `auth.css` (form width, the notice and the recruiter table). The Account menu's styles are in `src/app/app.css`.
 
 ## Tests
 Vitest, colocated, mocked `fetch` (Playwright stays paused):

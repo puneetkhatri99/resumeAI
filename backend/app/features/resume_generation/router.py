@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import MAX_ID, get_db
 from app.features.resume_generation.service import (
     PdfRenderError,
     build_resume_html,
@@ -24,14 +24,11 @@ from app.features.resume_structuring.service import ResumeData
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/resume_generation", tags=["resume_generation"])
 
-# resume_intakes.id is a 32-bit integer: a bigger id is a 422, not a DataError reported as a 503.
-MAX_INTAKE_ID = 2_147_483_647
-
 
 # Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
 @router.get("/{intake_id}")
 def read_branded_resume(
-    intake_id: Annotated[int, Path(le=MAX_INTAKE_ID)], db: Annotated[Session, Depends(get_db)]
+    intake_id: Annotated[int, Path(le=MAX_ID)], db: Annotated[Session, Depends(get_db)]
 ) -> Response:
     """Return the intake's branded resume as an inline `application/pdf` (200).
 
