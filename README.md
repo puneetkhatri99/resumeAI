@@ -25,6 +25,8 @@ ResumeAI takes an existing resume, uses AI to turn it into structured data, and 
 
    Optional: `PUBLIC_API_KEY` is the key outside systems send as the `X-API-Key` header to the public API (`/api/public`, see [docs/features/public_api.md](docs/features/public_api.md)). Unset or empty, every public route answers HTTP 401.
 
+   Optional: `ADMIN_EMAIL` and `ADMIN_PASSWORD` (12 to 1024 characters) create the admin account at startup if no account has that email yet ([docs/features/auth.md](docs/features/auth.md)). Set both or neither. An existing account is never changed, so a later `ADMIN_PASSWORD` change has no effect: the admin changes their password in the app. The web app needs a login; the admin adds recruiters on its Admin page. Without an admin, nobody can log in.
+
 ## 2. Backend
 ```powershell
 cd backend
@@ -96,7 +98,7 @@ Open http://localhost:5173. It should show **Backend OK · Database OK**.
 | Frontend lint | `frontend/` | `npm run lint` |
 | Frontend type-check + build | `frontend/` | `npm run build` |
 | Frontend unit / component tests | `frontend/` | `npm test` |
-| End-to-end (starts both servers) | `frontend/` | `npm run test:e2e` (needs Postgres and `backend/.env`; makes no OpenAI calls) |
+| End-to-end (starts both servers) | `frontend/` | `npm run test:e2e` (needs Postgres and `backend/.env`; makes no OpenAI calls). Since login was added, the specs that use the real backend get 401 until they log in (not updated while UI testing is paused). |
 | End-to-end, including the live AI test | `frontend/` | `$env:E2E_LIVE_AI=1; npm run test:e2e` (1 real OpenAI request; run only with the user's permission) |
 
 No test calls OpenAI except the e2e live test above: pytest replaces the client with a fake, and the other e2e tests answer the upload with canned responses.
@@ -105,10 +107,10 @@ No test calls OpenAI except the e2e live test above: pytest replaces the client 
 The app deploys as one Docker web service from the root [Dockerfile](Dockerfile). It builds the frontend, and FastAPI serves it at `/` with the API at `/api`. The container runs `alembic upgrade head` on every start.
 
 1. On Render, go to **New → Web Service**, pick this GitHub repo, and set **Language** to **Docker**.
-2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`, plus the six storage settings (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET`, `PUBLIC_RESUME_BUCKET`), all required. `AI_SPEND_CAP_USD` is optional (default 5). `PUBLIC_API_KEY` is optional (unset closes the public API). `.env` isn't in the image.
+2. Under **Environment**, set `DATABASE_URL` (the Aiven URL from `backend/.env`, starting `postgresql+psycopg://` and ending `?sslmode=require`) and `OPENAI_API_KEY`, plus the six storage settings (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET`, `PUBLIC_RESUME_BUCKET`), all required. `AI_SPEND_CAP_USD` is optional (default 5). `PUBLIC_API_KEY` is optional (unset closes the public API). `ADMIN_EMAIL` and `ADMIN_PASSWORD` create the admin at the first start that has them (needed once, to log in). `.env` isn't in the image.
 3. Deploy, then check that `https://<service>.onrender.com/api/health` shows `{"status":"ok","database":"ok"}`.
 
-There's no login yet, so anyone with the URL can use the app.
+The web app and its `/api` routes need a login (`/api/health` and the key-protected `/api/public` don't). The session cookie is `Secure`, so the deployed app must be served over HTTPS (Render does this).
 
 ## Project docs
 - [docs/architecture.md](docs/architecture.md): structure, feature-slice conventions, decisions.

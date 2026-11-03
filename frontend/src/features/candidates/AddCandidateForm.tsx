@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError } from '../../shared/api/client.ts'
 import { CvDropzone } from '../resume_intake/CvDropzone.tsx'
 import { addCandidate, type CandidateStage } from './api.ts'
@@ -31,7 +31,8 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.m
  * and the button are disabled (a double submit would pay the AI twice) and a progress card covers the page:
  * Extracting text, AI cleaning, Creating resume, Uploading, each shown for at least MIN_STAGE_MS (the stage
  * queue is copied from InterviewForm). Errors (a CV over 10 MB, the spending cap, the rate limit, the network
- * and error events) show next to the button. When done, it links to the new resume and the candidate page.
+ * and error events) show next to the button. Beside the form, "What happens" lists the same four steps. When done,
+ * it links to the new resume and the candidate page, and "Add another" brings the empty form back.
  */
 export function AddCandidateForm() {
   const [stage, setStage] = useState<CandidateStage | null>(null)
@@ -80,10 +81,9 @@ export function AddCandidateForm() {
 
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">Candidates</span>
             <h2 className="hero-title">Add candidate</h2>
             <p className="hero-text">Drop the candidate's CV. AI reads it and creates the branded MinistryHub resume.</p>
           </div>
@@ -91,18 +91,7 @@ export function AddCandidateForm() {
       </section>
       <div className="page-container page-body candidate-add">
         {newResumeUrl ? (
-          <section className="card candidate-done" aria-labelledby="candidate-done-heading">
-            <h3 id="candidate-done-heading">Candidate added</h3>
-            <p>The original CV and the new resume are stored.</p>
-            <div className="candidate-done-actions">
-              <a className="button button-primary" href={newResumeUrl} target="_blank" rel="noopener noreferrer">
-                Open new resume
-              </a>
-              <a className="button button-outline" href="#/candidates">
-                View candidates
-              </a>
-            </div>
-          </section>
+          <CandidateDone newResumeUrl={newResumeUrl} onAddAnother={() => setNewResumeUrl(null)} />
         ) : (
           <form onSubmit={handleSubmit}>
             <fieldset className="candidate-fieldset" disabled={isSubmitting}>
@@ -116,7 +105,7 @@ export function AddCandidateForm() {
                 <p className="candidate-actions-text">
                   {isSubmitting ? 'Keep this tab open until the resume is ready.' : 'This can take up to a minute.'}
                 </p>
-                <button type="submit" className="button button-primary" disabled={isSubmitting}>
+                <button type="submit" className="button button-accent" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>
                       <span className="button-spinner" aria-hidden="true" />
@@ -130,9 +119,58 @@ export function AddCandidateForm() {
             </fieldset>
           </form>
         )}
+        <aside className="card candidate-steps" aria-labelledby="candidate-steps-heading">
+          <h3 id="candidate-steps-heading">What happens</h3>
+          <ol>
+            {PROGRESS_STEPS.map((step) => (
+              <li key={step.stage}>
+                <span className="candidate-step-label">{step.label}</span>
+                <span className="candidate-step-hint">{step.hint}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="candidate-steps-note">
+            The candidate then shows on <a href="#/candidates">Candidates</a> with both files and the AI cost.
+          </p>
+        </aside>
         {stage && <AddProgress stage={stage} />}
       </div>
     </>
+  )
+}
+
+/** The finished state: the new resume to open, the way to the candidate page, and "Add another" for the next CV. */
+function CandidateDone({ newResumeUrl, onAddAnother }: { newResumeUrl: string; onAddAnother: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+
+  // Move focus to the result, so keyboard and screen-reader users land on it.
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
+  return (
+    <section className="card candidate-done" aria-labelledby="candidate-done-heading">
+      <span className="candidate-done-tick" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      </span>
+      <h3 id="candidate-done-heading" ref={headingRef} tabIndex={-1}>
+        Candidate added
+      </h3>
+      <p>The original CV and the new resume are stored.</p>
+      <div className="candidate-done-actions">
+        <a className="button button-primary" href={newResumeUrl} target="_blank" rel="noopener noreferrer">
+          Open new resume
+        </a>
+        <a className="button button-outline" href="#/candidates">
+          View candidates
+        </a>
+        <button type="button" className="button button-outline" onClick={onAddAnother}>
+          Add another
+        </button>
+      </div>
+    </section>
   )
 }
 

@@ -2,6 +2,7 @@ from logging.config import fileConfig
 
 # Import every feature's models module here so autogenerate can see its tables.
 import app.features.ai_usage.models  # noqa: F401
+import app.features.auth.models  # noqa: F401
 import app.features.candidates.models  # noqa: F401
 import app.features.public_api.models  # noqa: F401
 import app.features.resume_intake.models  # noqa: F401

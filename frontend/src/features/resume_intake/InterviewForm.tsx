@@ -109,10 +109,9 @@ export function InterviewForm({ onSubmitted }: InterviewFormProps) {
 
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">New interview</span>
             <h2 className="hero-title">Interview intake</h2>
             <p className="hero-text">Add the candidate's CV and your notes from the interview. Every field is required.</p>
           </div>
@@ -133,7 +132,6 @@ export function InterviewForm({ onSubmitted }: InterviewFormProps) {
                 </svg>
               </span>
               <div>
-                <span className="step-label text-teal">Step 2</span>
                 <h3 id="availability-heading">Availability &amp; pay</h3>
               </div>
             </div>
@@ -169,7 +167,6 @@ export function InterviewForm({ onSubmitted }: InterviewFormProps) {
                 </svg>
               </span>
               <div>
-                <span className="step-label text-violet">Step 3</span>
                 <h3 id="assessment-heading">Interviewer assessment</h3>
               </div>
             </div>

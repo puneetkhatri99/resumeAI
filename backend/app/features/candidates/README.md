@@ -47,7 +47,7 @@ Table `candidates` (migration `3aee3f10cd78_create_candidates_table.py`): `id` i
 - **Order:** storage is written before the row (a row never points at a missing file); a failed second PUT deletes the first object, a failed commit deletes both. If that cleanup fails, the orphan's key is logged (it holds no personal data).
 - **Neon's DeleteObject is a soft delete:** the object leaves the bucket but stays recoverable through Neon's branch history until that history expires. The candidate page says nothing about this.
 
-**Privacy:** no CV content, name or presigned URL is logged; storage errors log the S3 error code only. The branded PDFs are public by the user's choice (anyone with the URL can read them); the UUID keys are the only protection. No login yet: anyone with the app's address can list candidates, download originals and delete candidates (accepted until the login feature).
+**Privacy:** no CV content, name or presigned URL is logged; storage errors log the S3 error code only. The branded PDFs are public by the user's choice (anyone with the URL can read them); the UUID keys are the only protection. Every route here needs a login (`auth.require_user`, attached in `app/main.py`). A presigned original-CV link already handed out stays valid for its hour (accepted).
 
 ## Tests
 `backend/tests/features/candidates/` (OpenAI faked by `fake_openai`, storage by the autouse `fake_s3` in `tests/conftest.py`, `render_pdf` by `FakeRenderer`; presigning stays real; every request that can store something uses `db_session`):

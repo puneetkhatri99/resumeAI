@@ -17,7 +17,7 @@ ResumeAI takes a user's existing resume, uses AI to turn it into structured data
 - Run: `fastapi dev app/main.py` → http://localhost:8000/docs
 - Lint / format: `ruff check .` / `ruff format .`
 - Test: `pytest`. The DB tests need Postgres and `backend/.env`. pytest never calls OpenAI (autouse `fake_openai` fixture). Exactly one test renders a real PDF with headless Chromium (user-approved); every other test fakes `render_pdf`.
-- `backend/.env` needs `DATABASE_URL`, `OPENAI_API_KEY` and the Neon Object Storage settings `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET` (private, original CVs) and `PUBLIC_RESUME_BUCKET` (public, branded PDFs); all are required. pytest never calls Neon (autouse `fake_s3` fixture). Optional: `AI_SPEND_CAP_USD` (default 5) and `PUBLIC_API_KEY` (the public API's `X-API-Key`; unset = every `/api/public` route is 401).
+- `backend/.env` needs `DATABASE_URL`, `OPENAI_API_KEY` and the Neon Object Storage settings `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET` (private, original CVs) and `PUBLIC_RESUME_BUCKET` (public, branded PDFs); all are required. pytest never calls Neon (autouse `fake_s3` fixture). Optional: `AI_SPEND_CAP_USD` (default 5), `PUBLIC_API_KEY` (the public API's `X-API-Key`; unset = every `/api/public` route is 401), and `ADMIN_EMAIL` + `ADMIN_PASSWORD` (12–1024 characters; the admin account is created at startup if missing, never overwritten). pytest unsets `ADMIN_*` and logs every request in as a fake recruiter (autouse fixtures); `real_auth` turns that off.
 - Migrations: `alembic revision --autogenerate -m "<message>"`, then `alembic upgrade head`
 
 **Frontend** (run from `frontend/`):
@@ -25,7 +25,7 @@ ResumeAI takes a user's existing resume, uses AI to turn it into structured data
 - Lint: `npm run lint`
 - Type-check + build: `npm run build`
 - Unit / component tests: `npm test` (Vitest)
-- End-to-end: `npm run test:e2e` (Playwright; starts both servers, needs Postgres; no OpenAI calls)
+- End-to-end: `npm run test:e2e` (Playwright; starts both servers, needs Postgres; no OpenAI calls). Since login was added, the specs that use the real backend get 401 until they log in (not updated while UI testing is paused).
 - End-to-end with the live AI test: `$env:E2E_LIVE_AI=1; npm run test:e2e`. It makes 1 real OpenAI request; never run it without the user's permission.
 
 ## Agents (`.claude/agents/`)

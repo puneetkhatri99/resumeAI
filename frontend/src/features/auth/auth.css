@@ -1,0 +1,61 @@
+/* auth: the login and change-password forms, and the admin page's recruiter table. */
+
+.auth-form {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-form .button {
+  align-self: flex-start;
+}
+
+.auth-notice {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--positive-bg);
+  color: var(--positive);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auth-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.auth-admin h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.auth-table-wrap {
+  overflow-x: auto;
+}
+
+.auth-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.auth-table th,
+.auth-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.auth-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-row-actions .field {
+  min-width: 200px;
+}

@@ -1,6 +1,8 @@
 """Shared pytest fixtures. The autouse fake_openai fixture keeps every test away from OpenAI,
 the autouse fake_s3 fixture keeps every test away from Neon Object Storage, and the autouse
-reset_rate_limits fixture starts every test with no requests counted.
+reset_rate_limits fixture starts every test with no requests counted. The autouse fake_recruiter
+fixture logs every request in as a fake recruiter (real_auth turns that off), and the autouse
+no_admin_bootstrap fixture keeps the startup from creating the .env admin in the database.
 """
 
 from collections.abc import Iterator
@@ -15,8 +17,11 @@ from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import engine, get_db
 from app.core.rate_limit import rate_limiter
+from app.features.auth.models import User
+from app.features.auth.router import require_user
 from app.features.candidates import service as candidates_service
 from app.features.resume_structuring import service as resume_structuring_service
 from app.features.resume_structuring.schemas import (
@@ -178,10 +183,39 @@ def reset_rate_limits() -> None:
     rate_limiter.reset()
 
 
+@pytest.fixture(autouse=True)
+def fake_recruiter() -> Iterator[User]:
+    """Answer require_user with a fake recruiter, so every test that isn't about login gets past
+    the login guard. Admin routes still answer 403 (it isn't an admin). Synthetic email only.
+    """
+    user = User(id=1, email="recruiter@example.com", password_hash="", role="recruiter")
+    app.dependency_overrides[require_user] = lambda: user
+    yield user
+    app.dependency_overrides.pop(require_user, None)
+
+
+@pytest.fixture
+def real_auth() -> None:
+    """Remove the fake recruiter, so requests need a real session cookie."""
+    app.dependency_overrides.pop(require_user, None)
+
+
+@pytest.fixture(autouse=True)
+def no_admin_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset ADMIN_EMAIL and ADMIN_PASSWORD for every test. Without it, every TestClient's
+    startup would insert the .env admin into the real database (Aiven).
+    """
+    monkeypatch.setattr(settings, "admin_email", None)
+    monkeypatch.setattr(settings, "admin_password", None)
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    """HTTP client for the app. Clears dependency overrides afterwards to keep tests isolated."""
-    with TestClient(app) as test_client:
+    """HTTP client for the app. Clears dependency overrides afterwards to keep tests isolated.
+
+    HTTPS base URL: otherwise httpx won't send the Secure session cookie back.
+    """
+    with TestClient(app, base_url="https://testserver") as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

@@ -6,8 +6,13 @@ extraction, together: /api/resume_intake, /api/public/resumes, /api/candidates a
 /api/public/pdf. A request over either gets 429 with a Retry-After header. The counts live in
 this process's memory, so they reset on a restart and aren't shared between instances.
 
+A third bucket guards password guessing (auth): 10 POSTs per 15 minutes to /api/auth/login and
+/api/auth/password together, also on top of the overall limit.
+
 The client IP is request.client.host. Behind a proxy (Render) that is the proxy's address
-unless uvicorn is set up to trust its forwarded header; the deploy step sets that up.
+unless uvicorn is set up to trust its forwarded header. Until that is set up, every visitor on
+Render shares one count per bucket: an attacker who keeps guessing passwords also blocks real
+users' logins (accepted limit; users already logged in keep working).
 """
 
 import math
@@ -27,15 +32,20 @@ UPLOAD_PATHS = {
     "/api/candidates",
     "/api/public/pdf",
 }
+# POSTs to these paths check a password, so they also count in the "login" bucket.
+LOGIN_PATHS = {"/api/auth/login", "/api/auth/password"}
 API_LIMIT = 120
 API_WINDOW_SECONDS = 60
 UPLOAD_LIMIT = 30
 UPLOAD_WINDOW_SECONDS = 3600
+LOGIN_LIMIT = 10
+LOGIN_WINDOW_SECONDS = 900
 # Each bucket's (limit, window in seconds). Every /api request counts in "api"; an upload also
-# counts in "upload".
+# counts in "upload", and a login or password change in "login".
 BUCKETS: dict[str, tuple[int, int]] = {
     "api": (API_LIMIT, API_WINDOW_SECONDS),
     "upload": (UPLOAD_LIMIT, UPLOAD_WINDOW_SECONDS),
+    "login": (LOGIN_LIMIT, LOGIN_WINDOW_SECONDS),
 }
 # How often every key is pruned, so the IPs that stop sending don't stay in memory.
 SWEEP_INTERVAL_SECONDS = 60
@@ -58,7 +68,11 @@ class RateLimiter:
         Returns None when it is allowed (and records it), or the whole seconds until it would
         be allowed (and records nothing).
         """
-        buckets = ["api", "upload"] if method == "POST" and path in UPLOAD_PATHS else ["api"]
+        buckets = ["api"]
+        if method == "POST" and path in UPLOAD_PATHS:
+            buckets.append("upload")
+        if method == "POST" and path in LOGIN_PATHS:
+            buckets.append("login")
         now = monotonic()
         with self._lock:
             if now - self._last_sweep >= SWEEP_INTERVAL_SECONDS:

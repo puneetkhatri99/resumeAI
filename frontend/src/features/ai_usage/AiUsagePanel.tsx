@@ -114,10 +114,9 @@ export function AiUsagePanel() {
 
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">AI usage</span>
             <h2 className="hero-title">AI usage and cost</h2>
             <p className="hero-text">
               Every OpenAI call, priced at the model that made it. Days and months follow your time zone. A call that

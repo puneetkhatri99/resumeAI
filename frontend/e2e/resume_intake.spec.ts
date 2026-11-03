@@ -80,7 +80,7 @@ test('interviewer drops a CV, submits the interview and sees the extracted detai
 }) => {
   test.skip(!LIVE_AI, "Calls the live OpenAI API: run with E2E_LIVE_AI=1, and only with the user's permission.")
   test.setTimeout(120_000)
-  await page.goto('/')
+  await page.goto('/#/interview')
 
   await dropFiles(page, ['cv.txt'])
   await expect(page.getByLabel('CV', { exact: true })).toHaveValue(/cv\.txt$/)
@@ -113,7 +113,7 @@ test('interviewer drops a CV, submits the interview and sees the extracted detai
 })
 
 test('dropping several files at once shows an error and keeps the CV already chosen', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/#/interview')
   const cvInput = page.getByLabel('CV', { exact: true })
 
   await dropFiles(page, ['cv.txt'])
@@ -157,7 +157,7 @@ for (const { file, status, message } of REJECTED_CVS) {
         body: eventStreamBody({ stage: 'reading' }, { stage: 'error', status, detail: message }),
       }),
     )
-    await page.goto('/')
+    await page.goto('/#/interview')
     await page.getByLabel('CV', { exact: true }).setInputFiles(file)
     await fillAnswers(page)
 
@@ -175,7 +175,7 @@ test('a CV over 10 MB shows "The CV is larger than 10 MB." and sends nothing', a
   page.on('request', (request) => {
     if (request.method() === 'POST') postCount += 1
   })
-  await page.goto('/')
+  await page.goto('/#/interview')
   const bigCv = { name: 'big.txt', mimeType: 'text/plain', buffer: Buffer.alloc(10 * 1024 * 1024 + 1, 'a') }
   await page.getByLabel('CV', { exact: true }).setInputFiles(bigCv)
   await fillAnswers(page)
@@ -192,7 +192,7 @@ for (const label of ['CV', 'Notice period / start date', 'Work mode', 'Rating', 
     page.on('request', (request) => {
       if (request.method() === 'POST') postCount += 1
     })
-    await page.goto('/')
+    await page.goto('/#/interview')
     if (label !== 'CV') {
       await page.getByLabel('CV', { exact: true }).setInputFiles({ name: 'cv.txt', mimeType: 'text/plain', buffer: Buffer.from(CV_TEXT) })
     }
@@ -215,7 +215,7 @@ test('a whitespace-only answer shows "Fill in Strengths.", focuses it and sends 
   page.on('request', (request) => {
     if (request.method() === 'POST') postCount += 1
   })
-  await page.goto('/')
+  await page.goto('/#/interview')
   await page.getByLabel('CV', { exact: true }).setInputFiles({ name: 'cv.txt', mimeType: 'text/plain', buffer: Buffer.from(CV_TEXT) })
   await fillAnswers(page, 'Strengths')
   await page.getByLabel('Strengths').fill('   ')
@@ -237,7 +237,7 @@ test('double-clicking Submit sends the interview once', async ({ page }) => {
       body: eventStreamBody({ stage: 'reading' }, { stage: 'extracting' }, { stage: 'done', result: STORED_INTAKE }),
     })
   })
-  await page.goto('/')
+  await page.goto('/#/interview')
   await page.getByLabel('CV', { exact: true }).setInputFiles({ name: 'cv.txt', mimeType: 'text/plain', buffer: Buffer.from(CV_TEXT) })
   await fillAnswers(page)
 
@@ -273,7 +273,7 @@ test('past interviews lists stored intakes and opens one at its own address', as
       : route.abort(),
   )
   await page.route(`**/api/resume_intake/${STORED_INTAKE.id}`, (route) => route.fulfill({ json: STORED_INTAKE }))
-  await page.goto('/')
+  await page.goto('/#/interview')
 
   await page.getByRole('link', { name: 'Past interviews' }).click()
   await expect(page).toHaveURL(/#\/history$/)
@@ -289,7 +289,7 @@ test('past interviews lists stored intakes and opens one at its own address', as
 
 test('the form has no sideways scroll on a 375 px wide phone', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 })
-  await page.goto('/')
+  await page.goto('/#/interview')
   await expect(page.getByLabel('CV', { exact: true })).toBeVisible()
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)

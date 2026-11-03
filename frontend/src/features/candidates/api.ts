@@ -1,4 +1,4 @@
-import { ApiError, apiGet, apiPostEventStream } from '../../shared/api/client.ts'
+import { ApiError, apiGet, apiPostEventStream, apiRequest } from '../../shared/api/client.ts'
 
 /** The progress stages the backend reports before its final event. */
 export type CandidateStage = 'reading' | 'extracting' | 'generating' | 'uploading'
@@ -59,15 +59,9 @@ export function listCandidates(beforeId?: number): Promise<CandidateList> {
 }
 
 /**
- * Deletes a candidate with both resume files. Resolves on 204; throws ApiError (with the backend's detail when
- * it sends one) on any other status. A plain fetch: shared/api/client.ts has no DELETE helper, and no other
- * feature needs one yet.
+ * Deletes a candidate with both resume files. Resolves on 204; throws ApiError (with the backend's detail when it
+ * sends one) on any other status, and a 401 sends the user to the login page.
  */
-export async function deleteCandidate(id: number): Promise<void> {
-  const response = await fetch(`/api/candidates/${id}`, { method: 'DELETE' })
-  if (!response.ok) {
-    const errorBody: unknown = await response.json().catch(() => null)
-    const detail = (errorBody as { detail?: unknown } | null)?.detail
-    throw new ApiError(response.status, typeof detail === 'string' ? detail : `DELETE /api/candidates/${id} failed with status ${response.status}`)
-  }
+export function deleteCandidate(id: number): Promise<void> {
+  return apiRequest('DELETE', `/candidates/${id}`)
 }

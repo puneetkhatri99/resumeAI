@@ -39,7 +39,7 @@
 ## Data
 No table and no column: the PDF isn't stored. It reads `resume_intakes.structured_data` through `get_resume_intake`. The `location` field it shows was added to `ResumeData` with this feature; migration `2349c371bb8a_add_location_to_structured_data.py` added `"location": null` to every stored object (a data migration, no schema change).
 
-**Privacy:** the PDF is built in memory and returned; we write no files (Playwright creates and deletes Chromium's throwaway profile). Logs hold only the intake id, exception types and Playwright's messages, never CV text. The filename holds the candidate's name (user's choice). **No auth and sequential ids:** fine only while the app is localhost-only; auth must come before any deployment.
+**Privacy:** the PDF is built in memory and returned; we write no files (Playwright creates and deletes Chromium's throwaway profile). Logs hold only the intake id, exception types and Playwright's messages, never CV text. The filename holds the candidate's name (user's choice). **Login and sequential ids:** the route needs a login (`auth.require_user`, attached in `app/main.py`); any logged-in user can open any intake's PDF by id (all recruiters see all interviews).
 
 **Known limits (accepted):** one Chromium launch per PDF (about 1 s warm, 4 s cold); `page.pdf` has no timeout, so a hung Chromium holds one worker thread; the request's DB session stays open while rendering; the branding images are ~180 dpi rasters; Inter is a look-alike of the paid TT Interphases; dates the parser can't read hide the duration.
 

@@ -33,10 +33,9 @@ export function IntakeResult({ result, onReset }: IntakeResultProps) {
 
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow hero-eyebrow-success">Interview saved</span>
             <h2 ref={headingRef} tabIndex={-1} className="hero-title">
               Interview summary
             </h2>
@@ -44,7 +43,7 @@ export function IntakeResult({ result, onReset }: IntakeResultProps) {
           </div>
           <div className="hero-actions">
             {result.structured_data && <BrandedPdfLink intakeId={result.id} />}
-            <button type="button" className="button button-accent" onClick={onReset}>
+            <button type="button" className="button button-outline" onClick={onReset}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14" />
                 <path d="M5 12h14" />
@@ -123,7 +122,7 @@ export function IntakeResult({ result, onReset }: IntakeResultProps) {
           <details open>
             <summary>
               <span className="icon-tile tile-indigo" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="#ffd08a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4 6h16" />
                   <path d="M4 12h16" />
                   <path d="M4 18h10" />

@@ -56,80 +56,132 @@ export function CandidateList() {
     }
   }
 
+  const isFirstLoad = status === 'loading' && items.length === 0
+
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">Candidates</span>
             <h2 className="hero-title">Candidates</h2>
             <p className="hero-text">Every candidate added here or through the public API, newest first.</p>
           </div>
+          {items.length > 0 && (
+            <p className="candidate-count">{hasMore ? `Newest ${items.length} shown` : `${items.length} ${items.length === 1 ? 'candidate' : 'candidates'}`}</p>
+          )}
         </div>
       </section>
       <div className="page-container page-body">
-        <section className="card candidate-card">
+        <section className="card candidate-card" aria-label="Candidates">
           {deleteError && (
             <p role="alert" className="alert alert-error">
               {deleteError}
             </p>
           )}
-          {items.length > 0 && (
+          {(items.length > 0 || isFirstLoad) && (
             <div className="candidate-table-wrap">
               <table className="candidate-table">
                 <thead>
                   <tr>
                     <th scope="col">Name</th>
-                    <th scope="col">Old resume</th>
-                    <th scope="col">New resume</th>
+                    <th scope="col">Resumes</th>
                     <th scope="col">Added</th>
                     <th scope="col">Source</th>
-                    <th scope="col">AI cost</th>
+                    <th scope="col" className="num">
+                      AI cost
+                    </th>
                     <th scope="col">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id}>
-                      <th scope="row">{item.name}</th>
+                  {items.map((item, index) => (
+                    <tr key={item.id} className="candidate-row" style={{ animationDelay: `${Math.min(index % 20, 10) * 30}ms` }}>
+                      <th scope="row">
+                        <span className="candidate-person">
+                          <span className="avatar" aria-hidden="true">
+                            {initialsOf(item.name)}
+                          </span>
+                          {item.name}
+                        </span>
+                      </th>
                       <td>
-                        <a href={item.original_resume_url} target="_blank" rel="noopener noreferrer">
-                          Original
-                        </a>
+                        <span className="candidate-resumes">
+                          <a className="button button-primary button-small" href={item.new_resume_url} target="_blank" rel="noopener noreferrer">
+                            New resume
+                          </a>
+                          <a className="button button-outline button-small" href={item.original_resume_url} target="_blank" rel="noopener noreferrer">
+                            Original
+                          </a>
+                        </span>
+                      </td>
+                      <td className="candidate-added">
+                        <time dateTime={item.created_at}>
+                          {new Date(item.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                        </time>
                       </td>
                       <td>
-                        <a href={item.new_resume_url} target="_blank" rel="noopener noreferrer">
-                          New resume
-                        </a>
+                        <span className="pill">{SOURCE_LABELS[item.source]}</span>
                       </td>
-                      <td>{new Date(item.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</td>
-                      <td>{SOURCE_LABELS[item.source]}</td>
-                      <td className="candidate-cost">{formatUsd(item.ai_cost_usd)}</td>
-                      <td>
+                      <td className="num candidate-cost">{formatUsd(item.ai_cost_usd)}</td>
+                      <td className="candidate-row-actions">
                         <button
                           type="button"
-                          className="button button-outline"
+                          className="button button-ghost"
                           aria-label={`Delete ${item.name}`}
+                          title="Delete"
                           onClick={() => void handleDelete(item.id)}
                         >
-                          Delete
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M4 7h16" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M6 7l1 13h10l1-13" />
+                            <path d="M9 7V4h6v3" />
+                          </svg>
                         </button>
                       </td>
                     </tr>
                   ))}
+                  {/* Loading: the final layout with grey bars in place of the values, so nothing jumps when rows land. */}
+                  {isFirstLoad &&
+                    [0, 1, 2, 3].map((row) => (
+                      <tr key={row} className="candidate-skeleton" aria-hidden="true">
+                        <th scope="row">
+                          <span className="candidate-person">
+                            <span className="avatar" />
+                            <span className="skeleton-bar" style={{ width: 140 }} />
+                          </span>
+                        </th>
+                        <td>
+                          <span className="skeleton-bar" style={{ width: 180 }} />
+                        </td>
+                        <td>
+                          <span className="skeleton-bar" style={{ width: 130 }} />
+                        </td>
+                        <td>
+                          <span className="skeleton-bar" style={{ width: 56 }} />
+                        </td>
+                        <td className="num">
+                          <span className="skeleton-bar" style={{ width: 60 }} />
+                        </td>
+                        <td />
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
           )}
           {status === 'ready' && items.length === 0 && (
-            <p className="candidate-message">
-              No candidates yet. <a href="#/candidates/new">Add a candidate</a>.
-            </p>
+            <div className="candidate-empty">
+              <h3>No candidates yet</h3>
+              <p>
+                Drop a CV and the branded MinistryHub resume is ready in about a minute. <a href="#/candidates/new">Add a candidate</a>.
+              </p>
+            </div>
           )}
           {status === 'loading' && (
-            <p role="status" className="candidate-message">
+            <p role="status" className={isFirstLoad ? 'sr-only' : 'candidate-message'}>
               Loading…
             </p>
           )}
@@ -154,4 +206,11 @@ export function CandidateList() {
       </div>
     </>
   )
+}
+
+/** "JD" for "Jane Doe": the first letters of the first and last words. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '?'
+  return (words[0][0] + (words.length > 1 ? words.at(-1)![0] : '')).toUpperCase()
 }

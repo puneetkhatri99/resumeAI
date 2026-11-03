@@ -13,6 +13,35 @@ Entry format:
 
 ---
 
+### 2026-11-03: Login (auth slice) built
+- **Context:** the developer agent built `docs/features/auth.md`: backend slice `auth`, the `login` rate-limit bucket, the lifespan bootstrap, the guards in `app/main.py`; frontend `LoginPage`, `ChangePasswordForm`, `AdminPage`, `LogoutButton`, `apiRequest` and `UNAUTHORIZED_EVENT` in `shared/api/client.ts`. No live call of any kind.
+- **Learning:**
+  - **Migration `381a21f5f9fb` ran on the local Postgres only** (through the scratchpad `run_local.py`, which points `DATABASE_URL` at the commented local line). Aiven is still at `3aee3f10cd78`; Render's `alembic upgrade head` on start would run it there on the next deploy.
+  - **`hashlib.scrypt` raises `TypeError`** (not only `ValueError`/`OverflowError`) for an `n` too large for a C integer, so `verify_password` catches all three; the malformed-hash test found it.
+  - **Tests:** the autouse `fake_recruiter` and `no_admin_bootstrap` fixtures kept all 399 existing tests passing unchanged. The `client` fixture now uses `https://testserver`, or httpx won't send the `Secure` cookie back. The rate limit is checked before the body, so the 429 test sends 10 empty (422) logins instead of 10 slow scrypt verifies.
+  - **Trap again:** a Bash heredoc with nested quotes failed ("unexpected EOF"); doc edits went through a script written with the Write tool.
+- **Applies to:** `auth`, every `/api` router, `tests/conftest.py`, the Aiven migration and the Render deploy.
+
+### 2026-11-03: Tester's API pass on login, and the Aiven migration
+- **Context:** the tester's API-only pass on `auth` (local DB) added 31 tests and found 1 bug. The user approved the auth migration on Aiven (`381a21f5f9fb`, run by the main session).
+- **Learning:**
+  - **Bug: a NUL in an email gave a false 503** on login and on add recruiter (psycopg `DataError`, caught as `SQLAlchemyError`). Fix: `is_storable` in `auth/schemas.py`. Login treats such an email as a wrong login (401, no query); every new email and password with a NUL is a 422.
+  - **A lone surrogate (`\ud800`) never reaches app code:** FastAPI's JSON decoding rejects it, and then building the 422 reply that echoes the input raises `UnicodeEncodeError`, a 500, on every JSON endpoint. Framework-level and harmless; not fixed. httpx's `json=` can't even send one (use `json.dumps` content to test it).
+  - **The first `ADMIN_*` start failed:** the user's `ADMIN_PASSWORD` was under 12 characters, so startup stopped by design. The user must lengthen it; then a restart creates the admin on Aiven.
+  - Backend after the fix: 481 passed (local DB).
+- **Applies to:** `auth`, and any text from a request that reaches Postgres.
+
+### 2026-11-03: Login (auth slice): the user's choices
+- **Context:** the user asked to "add login functionality". Design `docs/features/auth.md`, approved 2026-11-03 after the challenger's review.
+- **Learning (the user's decisions):**
+  - **One account per recruiter, by email.** Roles `admin` and `recruiter`; admins can use the whole app plus an **admin page** (add a recruiter with a password the admin sets, reset a recruiter's password, remove a recruiter). There's no promote/demote and no self-signup.
+  - **First admin from env on startup:** `ADMIN_EMAIL` / `ADMIN_PASSWORD`, created only if missing and never overwritten.
+  - **Every user can change their own password.** Sessions last **12 hours from login** (fixed). Passwords need at least 12 characters, with no other rules.
+  - **A forgotten admin password:** with the user's go-ahead, the main session deletes the admin's row and restarts the app, which recreates it from `ADMIN_*`.
+  - **Rollout order:** (1) migrate Aiven (go-ahead at the time), (2) set `ADMIN_*` in `.env` and on Render, (3) push. Render's Docker `CMD` runs `alembic upgrade head` on every start, so a push migrates Aiven by itself.
+- **Learning (review):** `hashlib.scrypt` at N=2^15, r=8 needs just over OpenSSL's default 32 MiB `maxmem`, so pass `maxmem` explicitly (`p=3`, 64 MiB). In this FastAPI version, include-time dependencies aren't on `APIRoute.dependant`; test route protection over HTTP from `app.openapi()["paths"]`.
+- **Applies to:** the `auth` slice, every `/api` router, `tests/conftest.py`, and the Render deploy.
+
 ### 2026-11-03: Candidates feature built
 - **Context:** the approved `docs/features/candidates.md` was built by the developer agent: backend slice `candidates`, `POST /api/public/pdf` in `public_api`, `require_ai_budget` and `total_cost` in `ai_usage/service.py`, frontend pages `#/candidates/new` and `#/candidates`. No live call of any kind was made.
 - **Learning:**

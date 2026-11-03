@@ -74,7 +74,7 @@ describe('IntakeHistory', () => {
     render(<IntakeHistory />)
 
     expect(await screen.findByText(/No interviews yet/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Start a new interview' })).toHaveAttribute('href', '#/')
+    expect(screen.getByRole('link', { name: 'Start a new interview' })).toHaveAttribute('href', '#/interview')
   })
 
   it('shows an error with "Try again", which loads the list again', async () => {

@@ -57,10 +57,9 @@ export function IntakeHistory() {
 
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">History</span>
             <h2 className="hero-title">Past interviews</h2>
             <p className="hero-text">Every submitted interview, newest first. Open one to see its full result.</p>
           </div>
@@ -98,7 +97,7 @@ export function IntakeHistory() {
           )}
           {status === 'ready' && items.length === 0 && (
             <p className="history-message">
-              No interviews yet. <a href="#/">Start a new interview</a>.
+              No interviews yet. <a href="#/interview">Start a new interview</a>.
             </p>
           )}
           {status === 'loading' && (

@@ -1,39 +1,117 @@
-/* App shell and the shared look: colour tokens, the indigo band, cards, buttons, form fields and alerts. */
+/*
+ * App shell and the shared look: light and dark colour tokens, the top bar and its menus, page titles, cards,
+ * buttons, form fields, alerts and the upload progress overlay.
+ *
+ * Colour: neutral surfaces, one accent (MinistryHub yellow, from the branded PDF's header bars) kept to the
+ * "Add candidate" action and to data marks (progress, rating). The theme follows the system until the user picks
+ * one with the toggle, which sets <html data-theme>; index.html applies a remembered choice before first paint.
+ */
 
 :root {
-  --ink: #14171f;
-  --ink-2: #4a5263;
-  --muted: #5e6678;
-  --line: #e4e7f0;
-  --line-soft: #edeff5;
-  --field-line: #cdd3e1;
-  --ground: #f3f4f8;
-  --indigo: #1e2a78;
-  --indigo-soft-text: #c3cbf2;
-  --amber: #f5a524;
-  --blue: #2b4acb;
-  --blue-dark: #1e3596;
-  --blue-tint: #eaefff;
-  --teal: #0f7f6e;
-  --teal-dark: #0b6e5f;
-  --teal-tint: #ddf7ee;
-  --violet: #6b3fd4;
-  --violet-dark: #4c2a9e;
-  --violet-tint: #f0ebff;
-  --orange: #c2610c;
-  --orange-dark: #8a3a08;
-  --orange-tint: #fdeee2;
-  --pink: #c02669;
-  --pink-dark: #a01f57;
-  --pink-tint: #fdebf3;
-  --radius: 16px;
-  --shadow: 0 1px 2px rgb(16 24 64 / 6%), 0 12px 32px rgb(30 42 120 / 10%);
-  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ground: #f7f7f8;
+  --surface: #ffffff;
+  --raised: #f1f1f3;
+  --active: #e8e8eb;
+  --border: #e6e6e9;
+  --rule: #efeff1;
+  --control: #d2d2d7;
+  --text: #121214;
+  --muted: #5b5d64;
+  --faint: #6a6c72;
+  --primary: #121214;
+  --on-primary: #ffffff;
+  --accent: #f5c211;
+  --on-accent: #121214;
+  --accent-hover: #e6b400;
+  --positive: #1f7a4c;
+  --positive-bg: #e2f6ea;
+  --negative: #b4232a;
+  --negative-bg: #fdecea;
+  --notice-bg: #fff8e1;
+  --notice-border: #f2dc92;
+  --notice-ink: #6b4a00;
+  --scrim: rgb(18 18 20 / 45%);
+  --float-shadow: 0 12px 32px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 6%);
 
+  /* Older names, still used by the feature stylesheets. */
+  --ink: var(--text);
+  --ink-2: var(--muted);
+  --line: var(--border);
+  --line-soft: var(--rule);
+  --field-line: var(--control);
+
+  --radius: 16px;
+  --radius-control: 12px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  color-scheme: light;
   font-family: 'Instrument Sans', system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--ink);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dark, twice: by the system setting unless the user picked light, and by the user's pick. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ground: #0b0b0c;
+    --surface: #151517;
+    --raised: #1e1e21;
+    --active: #2a2a2e;
+    --border: #26262a;
+    --rule: #1f1f22;
+    --control: #3e3e44;
+    --text: #f4f4f5;
+    --muted: #b4b4ba;
+    --faint: #96969c;
+    --primary: #f4f4f5;
+    --on-primary: #121214;
+    --accent: #f5c211;
+    --on-accent: #121214;
+    --accent-hover: #ffd33d;
+    --positive: #4cc786;
+    --positive-bg: #15281d;
+    --negative: #f0707a;
+    --negative-bg: #2d1719;
+    --notice-bg: #2a2310;
+    --notice-border: #4d3f12;
+    --notice-ink: #f2d78a;
+    --scrim: rgb(0 0 0 / 60%);
+    --float-shadow: 0 12px 32px rgb(0 0 0 / 50%), 0 0 0 1px var(--border);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --ground: #0b0b0c;
+  --surface: #151517;
+  --raised: #1e1e21;
+  --active: #2a2a2e;
+  --border: #26262a;
+  --rule: #1f1f22;
+  --control: #3e3e44;
+  --text: #f4f4f5;
+  --muted: #b4b4ba;
+  --faint: #96969c;
+  --primary: #f4f4f5;
+  --on-primary: #121214;
+  --accent: #f5c211;
+  --on-accent: #121214;
+  --accent-hover: #ffd33d;
+  --positive: #4cc786;
+  --positive-bg: #15281d;
+  --negative: #f0707a;
+  --negative-bg: #2d1719;
+  --notice-bg: #2a2310;
+  --notice-border: #4d3f12;
+  --notice-ink: #f2d78a;
+  --scrim: rgb(0 0 0 / 60%);
+  --float-shadow: 0 12px 32px rgb(0 0 0 / 50%), 0 0 0 1px var(--border);
+
+  color-scheme: dark;
 }
 
 *,
@@ -45,6 +123,16 @@
 body {
   margin: 0;
   background: var(--ground);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  flex: 1;
 }
 
 h1,
@@ -62,16 +150,24 @@ textarea {
 }
 
 a {
-  color: var(--blue);
+  color: var(--text);
+  text-decoration-color: var(--control);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
 }
 
 a:hover {
-  color: var(--blue-dark);
+  text-decoration-color: currentColor;
 }
 
 :focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .sr-only {
@@ -92,40 +188,49 @@ a:hover {
   padding: 0 24px;
 }
 
-/* The indigo band, with a faint dot grid, behind the header and each page's title. */
-.band {
-  background-color: var(--indigo);
-  background-image: radial-gradient(rgb(255 255 255 / 10%) 1px, transparent 1px);
-  background-size: 22px 22px;
-  color: #fff;
+/* A new page rises in, so a click on the nav reads as a move rather than a flash. */
+.page-enter {
+  animation: page-in 0.32s var(--ease);
 }
 
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ---------- Top bar ---------- */
+
 .app-header {
-  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--ground);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-header-inner {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-block: 14px;
+  gap: 16px;
+  height: 64px;
 }
 
 .app-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  line-height: 1.2;
+  color: inherit;
+  text-decoration: none;
 }
 
 .app-logo {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 9px;
-  background: var(--amber);
-  color: var(--indigo);
+  background: var(--accent);
+  color: var(--on-accent);
   display: grid;
   place-items: center;
 }
@@ -133,51 +238,314 @@ a:hover {
 .app-brand h1 {
   font-size: 17px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
-.app-tagline {
-  font-size: 12px;
-  color: var(--indigo-soft-text);
-}
-
-/* Header links between the pages; the current one is filled. They wrap on a phone rather than widen the page. */
 .app-nav {
+  flex: 1;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 8%);
 }
 
-.app-nav a {
-  padding: 6px 14px;
-  border-radius: 999px;
-  color: var(--indigo-soft-text);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.app-nav a:hover {
-  color: #fff;
-}
-
-.app-nav a[aria-current='page'] {
-  background: #fff;
-  color: var(--indigo);
-}
-
-.health-status {
+.app-nav-end {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
   border-radius: 999px;
-  background: rgb(255 255 255 / 12%);
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.nav-link:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.nav-link[aria-current='page'],
+.nav-link.is-current {
+  background: var(--active);
+  color: var(--text);
+}
+
+.nav-chevron {
+  transition: transform 0.2s var(--ease);
+}
+
+[aria-expanded='true'] > .nav-chevron {
+  transform: rotate(180deg);
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+
+.icon-button:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.icon-button:active {
+  transform: scale(0.92);
+}
+
+.avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--active);
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
+  display: grid;
+  place-items: center;
+  text-transform: uppercase;
+}
+
+/* A dropdown: the panel fades and drops in under its trigger; hidden (and out of the tab order) when closed. */
+.nav-menu {
+  position: relative;
+}
+
+.nav-menu-trigger.avatar-trigger {
+  height: 40px;
+  padding: 0 4px;
+}
+
+.nav-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px) scale(0.98);
+  transform-origin: top left;
+  transition:
+    opacity 0.16s var(--ease),
+    transform 0.16s var(--ease),
+    visibility 0s 0.16s;
+}
+
+.nav-menu-end .nav-menu-panel {
+  left: auto;
+  right: 0;
+  transform-origin: top right;
+}
+
+.nav-menu[data-open='true'] .nav-menu-panel {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.16s var(--ease),
+    transform 0.16s var(--ease);
+}
+
+.nav-menu-panel a,
+.nav-menu-panel button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+
+.nav-menu-panel a:hover,
+.nav-menu-panel button:hover {
+  background: var(--raised);
+}
+
+.nav-menu-panel a[aria-current='page'] {
+  background: var(--active);
+}
+
+.nav-menu-hint {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.nav-menu-panel a:has(.nav-menu-hint) {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 52px;
+}
+
+.nav-menu-email {
+  padding: 8px 12px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* On a phone only: the group name in the menu sheet, and the button that opens the sheet. */
+.nav-group-label,
+.nav-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .nav-toggle {
+    display: inline-grid;
+    margin-left: auto;
+  }
+
+  .app-nav {
+    position: fixed;
+    inset: 64px 0 0;
+    z-index: 25;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 16px 16px 32px;
+    overflow-y: auto;
+    background: var(--ground);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.2s var(--ease),
+      transform 0.2s var(--ease),
+      visibility 0s 0.2s;
+  }
+
+  .app-nav[data-open='true'] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition:
+      opacity 0.2s var(--ease),
+      transform 0.2s var(--ease);
+  }
+
+  .app-nav .nav-link,
+  .nav-menu-panel a,
+  .nav-menu-panel button {
+    height: auto;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .app-nav-end {
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  /* In the sheet every menu is open, under its group name. */
+  .nav-menu-trigger {
+    display: none;
+  }
+
+  .nav-group-label {
+    display: block;
+    padding: 16px 12px 4px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .nav-menu-panel,
+  .nav-menu[data-open] .nav-menu-panel {
+    position: static;
+    min-width: 0;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition: none;
+  }
+
+  .app-nav-end .button-accent {
+    order: -1;
+    margin-bottom: 8px;
+  }
+
+  .theme-toggle-row {
+    order: 1;
+  }
+}
+
+/* ---------- Footer ---------- */
+
+.app-footer {
+  margin-top: 64px;
+  border-top: 1px solid var(--border);
+}
+
+.app-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.health-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .health-status::before {
@@ -185,23 +553,24 @@ a:hover {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--faint);
 }
 
-.health-ok {
-  background: var(--teal-tint);
-  color: var(--teal-dark);
+.health-ok::before {
+  background: var(--positive);
+  box-shadow: 0 0 0 3px var(--positive-bg);
 }
 
-.health-database_unavailable,
-.health-unreachable {
-  background: var(--orange-tint);
-  color: var(--orange-dark);
+.health-database_unavailable::before,
+.health-unreachable::before {
+  background: var(--negative);
+  box-shadow: 0 0 0 3px var(--negative-bg);
 }
 
-/* A page's title on the band. The page body after it is pulled up over the band's lower edge. */
+/* ---------- Page title row ---------- */
+
 .page-hero {
-  padding-block: 40px 128px;
+  padding-block: 40px 28px;
 }
 
 .page-hero .page-container {
@@ -209,168 +578,121 @@ a:hover {
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 16px 24px;
 }
 
 .hero-heading {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-}
-
-.hero-eyebrow {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 12%);
-  color: #ffd08a;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-.hero-eyebrow-success {
-  background: var(--teal-tint);
-  color: var(--teal-dark);
+  min-width: 0;
 }
 
 .hero-title {
-  font-size: 38px;
-  line-height: 1.12;
+  font-size: 30px;
+  line-height: 1.15;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
+}
+
+.hero-title:focus {
+  outline: none;
 }
 
 .hero-text {
   max-width: 620px;
-  font-size: 16px;
-  color: var(--indigo-soft-text);
+  font-size: 15px;
+  color: var(--muted);
 }
 
 .page-body {
   position: relative;
-  margin-top: -96px;
-  padding-bottom: 64px;
+  padding-bottom: 24px;
 }
+
+/* ---------- Cards ---------- */
 
 .card {
   padding: 24px;
-  background: #fff;
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
 }
 
 .card-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .card-header h3 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 
-.step-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  line-height: 1.25;
-}
-
+/* A plain outline icon before a card's title; no coloured tile. */
 .icon-tile {
   flex: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--raised);
+  color: var(--muted);
   display: grid;
   place-items: center;
 }
 
 .icon-tile svg {
-  width: 20px;
-  height: 20px;
-}
-
-.tile-blue {
-  background: var(--blue);
-}
-
-.tile-teal {
-  background: var(--teal);
-}
-
-.tile-violet {
-  background: var(--violet);
-}
-
-.tile-orange {
-  background: var(--orange);
-}
-
-.tile-pink {
-  background: var(--pink);
-}
-
-.tile-indigo {
-  background: var(--indigo);
-}
-
-.text-blue {
-  color: var(--blue);
-}
-
-.text-teal {
-  color: var(--teal-dark);
-}
-
-.text-violet {
-  color: var(--violet);
+  width: 17px;
+  height: 17px;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 12px;
+  padding: 2px 10px;
   border-radius: 999px;
-  font-weight: 600;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.pill-blue {
-  background: var(--blue-tint);
-  color: var(--blue-dark);
+.pill-positive {
+  background: var(--positive-bg);
+  color: var(--positive);
 }
 
-.pill-teal {
-  background: var(--teal-tint);
-  color: var(--teal-dark);
-}
-
-.pill-violet {
-  background: var(--violet-tint);
-  color: var(--violet-dark);
-}
+/* ---------- Buttons ---------- */
 
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 22px;
+  min-height: 44px;
+  padding: 0 20px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
+  font-size: 15px;
   font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    transform 0.15s var(--ease),
+    opacity 0.15s;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .button svg {
@@ -379,38 +701,71 @@ a:hover {
 }
 
 .button-primary {
-  background: var(--blue);
-  color: #fff;
-  box-shadow: 0 8px 20px rgb(43 74 203 / 35%);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .button-primary:hover {
-  background: var(--blue-dark);
+  color: var(--on-primary);
+  opacity: 0.86;
 }
 
 .button-primary:disabled {
-  background: #d5dcf3;
-  color: #2a3570;
-  box-shadow: none;
+  opacity: 0.6;
   cursor: progress;
 }
 
+/* The one accent action: Add candidate. */
 .button-accent {
-  background: var(--amber);
-  color: var(--indigo);
-  font-weight: 700;
-  box-shadow: 0 8px 20px rgb(245 165 36 / 30%);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.button-accent:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+.button-accent:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.button-small {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
 }
 
 .button-outline {
-  min-height: 44px;
+  min-height: 40px;
   padding: 0 16px;
-  border: 1.5px solid var(--blue);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--blue);
+  border: 1px solid var(--control);
+  background: var(--surface);
+  color: var(--text);
   font-size: 14px;
 }
+
+.button-outline:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.button-ghost {
+  min-height: 36px;
+  padding: 0 12px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.button-ghost:hover {
+  background: var(--negative-bg);
+  color: var(--negative);
+}
+
+/* ---------- Form fields ---------- */
 
 .field {
   min-width: 0;
@@ -428,11 +783,31 @@ a:hover {
 .field textarea {
   width: 100%;
   min-height: 44px;
-  padding: 10px 12px;
-  border: 1px solid var(--field-line);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--ink);
+  padding: 10px 14px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--faint);
+}
+
+.field input:hover,
+.field textarea:hover {
+  border-color: var(--faint);
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px var(--active);
 }
 
 .field textarea {
@@ -442,19 +817,19 @@ a:hover {
 
 .field input:disabled,
 .field textarea:disabled {
-  border-color: var(--line);
-  background: #f7f8fb;
-  color: var(--ink-2);
+  border-color: var(--border);
+  background: var(--raised);
+  color: var(--muted);
 }
 
 .field-counter {
   align-self: flex-end;
-  font-family: var(--mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
-/* A radio group drawn as pills; the chosen pill takes the group's colour. */
+/* A radio group drawn as pills; the chosen pill is filled. */
 .choice-group {
   min-width: 0;
   margin: 0;
@@ -478,107 +853,95 @@ a:hover {
   gap: 8px;
 }
 
-.choices-teal {
-  --choice-color: var(--teal);
-  --choice-tint: var(--teal-tint);
-  --choice-text: var(--teal-dark);
-  --choice-radius: 999px;
-}
-
-.choices-violet {
-  --choice-color: var(--violet);
-  --choice-tint: var(--violet-tint);
-  --choice-text: var(--violet-dark);
-  --choice-radius: 12px;
-}
-
 .choice {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-width: 64px;
-  min-height: 44px;
+  min-width: 56px;
+  min-height: 42px;
   padding: 0 16px;
-  border: 1px solid var(--field-line);
-  border-radius: var(--choice-radius);
-  background: #fff;
+  border: 1px solid var(--control);
+  border-radius: 999px;
+  background: var(--surface);
   font-weight: 500;
   cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    transform 0.15s var(--ease);
 }
 
+.choice:hover {
+  border-color: var(--text);
+}
+
+.choice:active {
+  transform: scale(0.96);
+}
+
+/* The radio stays in place for the keyboard and screen readers; the pill shows the state. */
 .choice input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--choice-color);
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.choice:has(input:focus-visible) {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .choice:has(input:checked) {
-  border: 1.5px solid var(--choice-color);
-  background: var(--choice-tint);
-  color: var(--choice-text);
-  font-weight: 600;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .choice:has(input:disabled) {
   cursor: default;
+  opacity: 0.7;
 }
+
+/* ---------- Alerts ---------- */
 
 .alert {
   display: flex;
   gap: 10px;
   align-items: flex-start;
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 14px;
   font-weight: 500;
+  animation: page-in 0.24s var(--ease);
 }
 
 .alert-error {
-  background: var(--orange-tint);
-  color: var(--orange-dark);
+  background: var(--negative-bg);
+  color: var(--negative);
 }
 
-@media (max-width: 640px) {
-  .hero-title {
-    font-size: 30px;
-  }
+/* ---------- Upload progress (resume_intake, candidates) ---------- */
 
-  /* The nav may wrap to two rows on a phone: rounded corners instead of round ends. */
-  .app-nav {
-    border-radius: 16px;
-  }
-
-  .card {
-    padding: 20px;
-  }
-}
-
-a.button {
-  text-decoration: none;
-}
-
-/* The progress overlay of an upload (resume_intake, candidates) and the button spinner. */
 .button-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid #a9b6e6;
-  border-top-color: #2a3570;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
   border-radius: 50%;
-  animation: spin 0.9s linear infinite;
+  animation: spin 0.8s linear infinite;
 }
 
-/* Covers the page while sending, so the progress shows wherever the interviewer has scrolled to. */
+/* Covers the page while sending, so the progress shows wherever the user has scrolled to. */
 .progress-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 40;
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgb(20 26 61 / 55%);
-  backdrop-filter: blur(3px);
+  background: var(--scrim);
   animation: fade-in 0.2s ease;
 }
 
@@ -586,11 +949,20 @@ a.button {
   width: min(440px, 100%);
   padding: 0;
   overflow: hidden;
+  box-shadow: var(--float-shadow);
+  animation: card-in 0.32s var(--ease);
 }
 
 @keyframes fade-in {
   from {
     opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
   }
 }
 
@@ -601,16 +973,15 @@ a.button {
 }
 
 .progress-bar {
-  height: 6px;
-  background: var(--line);
+  height: 4px;
+  background: var(--raised);
 }
 
 .progress-bar span {
   display: block;
   height: 100%;
-  border-radius: 0 3px 3px 0;
-  background: linear-gradient(90deg, var(--blue), var(--violet));
-  transition: width 0.4s ease;
+  background: var(--accent);
+  transition: width 0.6s var(--ease);
 }
 
 .progress-body {
@@ -635,10 +1006,10 @@ a.button {
 .progress-count {
   padding: 2px 10px;
   border-radius: 999px;
-  background: var(--blue-tint);
-  color: var(--blue-dark);
-  font-family: var(--mono);
-  font-size: 12px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .progress-steps {
@@ -650,11 +1021,12 @@ a.button {
   gap: 18px;
 }
 
-/* A step: its marker (dashed circle, spinner or tick) beside a label and a hint. */
+/* A step: its marker (empty circle, spinner or tick) beside a label and a hint. */
 .progress-step {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   column-gap: 12px;
+  transition: opacity 0.3s;
 }
 
 .progress-step::before {
@@ -662,34 +1034,30 @@ a.button {
   grid-row: span 2;
   width: 28px;
   height: 28px;
-  border: 2px dashed #c2c9da;
+  border: 2px solid var(--control);
   border-radius: 50%;
 }
 
 .progress-step-done::before {
   border: 0;
-  background: var(--teal)
+  background: var(--positive)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
     center / 14px no-repeat;
-  animation: pop 0.3s ease;
-}
-
-.progress-step-active .progress-step-label {
-  color: var(--violet-dark);
+  animation: pop 0.3s var(--ease);
 }
 
 .progress-step-active::before {
-  border: 3px solid #dcd0ff;
-  border-top-color: var(--violet);
-  animation: spin 0.9s linear infinite;
+  border: 3px solid var(--raised);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
 }
 
 .progress-step-label {
   font-weight: 600;
 }
 
-.progress-step-todo .progress-step-label {
-  color: var(--muted);
+.progress-step-todo {
+  opacity: 0.6;
 }
 
 .progress-step-hint {
@@ -699,9 +1067,8 @@ a.button {
 
 .progress-status {
   padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--violet-tint);
-  color: var(--violet-dark);
+  border-radius: 12px;
+  background: var(--raised);
   font-size: 14px;
   font-weight: 600;
 }
@@ -712,11 +1079,35 @@ a.button {
   }
 }
 
+@media (max-width: 640px) {
+  .page-container {
+    padding: 0 16px;
+  }
+
+  .page-hero {
+    padding-block: 28px 20px;
+  }
+
+  .hero-title {
+    font-size: 26px;
+  }
+
+  .card {
+    padding: 20px;
+  }
+}
+
+/* Keep the content, drop the travel. The spinners slow down rather than stop, so work still reads as running. */
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .button-spinner,
-  .progress-overlay,
-  .progress-step-done::before,
   .progress-step-active::before {
-    animation: none;
+    animation-duration: 2s !important;
   }
 }

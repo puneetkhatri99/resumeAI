@@ -46,10 +46,9 @@ export function IntakeDetail({ intakeId, initialResult, onReset }: IntakeDetailP
   const message = failure?.id === intakeId ? failure.message : null
   return (
     <>
-      <section className="page-hero band">
+      <section className="page-hero">
         <div className="page-container">
           <div className="hero-heading">
-            <span className="hero-eyebrow">History</span>
             <h2 className="hero-title">Past interview</h2>
           </div>
         </div>

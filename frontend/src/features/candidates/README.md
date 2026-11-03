@@ -7,7 +7,7 @@
 - **`#/candidates`: `CandidateList`.** A table, newest first, 20 at a time with **Load more**: name, old resume (presigned link, expires after 1 hour), new resume (public URL), time added (browser time zone), source (Manual / API), AI cost (`formatUsd`, "—" when null) and **Delete**. Both links open in a new tab (`rel="noopener noreferrer"`). Delete asks `window.confirm("Delete this candidate and both resume files?")`, then removes the row on 204; a failure shows the backend's message and keeps the row.
 
 ## Files
-- `api.ts`: types mirroring the backend schemas; `addCandidate(file, onStage)` (reads the event stream with `apiPostEventStream`), `listCandidates(beforeId?)`, `deleteCandidate(id)` (a plain `fetch`: `shared/api/client.ts` has no DELETE helper and no other feature needs one).
+- `api.ts`: types mirroring the backend schemas; `addCandidate(file, onStage)` (reads the event stream with `apiPostEventStream`), `listCandidates(beforeId?)`, `deleteCandidate(id)` (through the shared `apiRequest('DELETE', …)`, so a 401 reaches the login page).
 - `AddCandidateForm.tsx`, `CandidateList.tsx`, `candidates.css` (the action bar, done card and table). The progress overlay's styles are shared in `src/app/app.css`.
 
 ## Tests

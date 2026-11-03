@@ -15,6 +15,14 @@
   gap: 16px;
 }
 
+/* The CV card stays in view while the interviewer scrolls through the answers. */
+@media (min-width: 960px) {
+  .intake-side {
+    position: sticky;
+    top: 88px;
+  }
+}
+
 .intake-answers {
   flex: 999 1 560px;
   min-width: 0;
@@ -49,19 +57,28 @@
   align-items: center;
   gap: 10px;
   padding: 36px 20px;
-  border: 2px dashed #9db0f0;
+  border: 2px dashed var(--control);
   border-radius: 14px;
-  background: #f3f6ff;
+  background: var(--ground);
   text-align: center;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    transform 0.2s var(--ease);
+}
+
+.cv-dropzone:hover {
+  border-color: var(--faint);
 }
 
 .cv-dropzone-active {
-  border-color: var(--blue);
-  background: var(--blue-tint);
+  border-color: var(--text);
+  background: var(--active);
+  transform: scale(1.01);
 }
 
 .cv-dropzone:has(.cv-dropzone-input:focus-visible) {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--text);
   outline-offset: 2px;
 }
 
@@ -75,21 +92,29 @@
   cursor: pointer;
 }
 
+.cv-dropzone-input:disabled {
+  cursor: default;
+}
+
 .cv-upload-tile {
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: var(--blue);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   display: grid;
   place-items: center;
-  box-shadow: 0 8px 20px rgb(43 74 203 / 30%);
+  transition: transform 0.25s var(--ease);
+}
+
+.cv-dropzone:hover .cv-upload-tile,
+.cv-dropzone-active .cv-upload-tile {
+  transform: translateY(-4px);
 }
 
 .cv-dropzone-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--indigo);
 }
 
 .cv-dropzone-or {
@@ -101,8 +126,10 @@
   flex-direction: row;
   gap: 14px;
   padding: 16px;
-  border: 1px solid #b9c7f5;
+  border: 1px solid var(--border);
+  background: var(--surface);
   text-align: left;
+  animation: page-in 0.3s var(--ease);
 }
 
 .cv-file-icon {
@@ -110,8 +137,8 @@
   width: 44px;
   height: 44px;
   border-radius: 11px;
-  background: var(--blue);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   display: grid;
   place-items: center;
 }
@@ -138,13 +165,13 @@
 .cv-rules {
   margin: 0;
   padding: 16px 0 0;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--rule);
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 13px;
-  color: var(--ink-2);
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .cv-rules li {
@@ -153,15 +180,15 @@
   gap: 10px;
 }
 
+/* A tick in the positive colour, drawn by a mask so it follows the theme. */
 .cv-rules li::before {
   content: '';
   flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--teal-tint)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230B6E5F' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
-    center / 12px no-repeat;
+  width: 16px;
+  height: 16px;
+  background: var(--positive);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 
 .intake-actions {
@@ -170,10 +197,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px 24px;
-  border: 1px solid #c9d3f5;
+  padding: 16px 16px 16px 24px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--blue-tint);
+  background: var(--surface);
 }
 
 .intake-actions .alert {
@@ -183,15 +210,15 @@
 .intake-actions-text {
   flex: 1 1 260px;
   font-size: 14px;
-  color: #2a3570;
+  color: var(--muted);
 }
 
-/* The title band's buttons ("Open branded PDF", "New interview") stay together on the right. */
+/* The title row's buttons ("Open branded PDF", "New interview") stay together on the right. */
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 /* Result screen: the candidate on top, the CV details beside the assessment, then the raw text. */
@@ -243,23 +270,19 @@
   align-items: center;
   gap: 16px;
   padding: 16px;
-  border: 1px solid #dcd0ff;
   border-radius: 12px;
-  background: var(--violet-tint);
+  background: var(--raised);
 }
 
 .rating-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--violet-dark);
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .rating-score {
   font-size: 16px;
   font-weight: 600;
-  color: var(--violet-dark);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The rating digit, drawn large; the text stays "4 / 5" for screen readers and copy-paste. */
@@ -279,11 +302,11 @@
 .rating-bar span {
   height: 10px;
   border-radius: 5px;
-  background: #dcd0ff;
+  background: var(--active);
 }
 
 .rating-bar .rating-bar-on {
-  background: var(--violet);
+  background: var(--accent);
 }
 
 .assessment-facts {
@@ -312,7 +335,7 @@
   flex-direction: column;
   gap: 12px;
   padding-top: 16px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--rule);
 }
 
 .note-block {
@@ -321,6 +344,7 @@
   gap: 4px;
   padding: 12px 14px;
   border-radius: 12px;
+  background: var(--raised);
 }
 
 .note-block h4 {
@@ -328,38 +352,31 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .note-block h4::before {
   content: '';
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--note-dot, var(--faint));
 }
 
 /* Keep the line breaks of the long answers. */
 .note-block p {
   font-size: 14px;
-  color: var(--ink);
+  color: var(--text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .note-strengths {
-  background: #eefaf6;
-  color: var(--teal-dark);
+  --note-dot: var(--positive);
 }
 
 .note-concerns {
-  background: #fff4ea;
-  color: var(--orange-dark);
-}
-
-.note-overall {
-  background: #f6f3ff;
-  color: var(--violet-dark);
+  --note-dot: var(--negative);
 }
 
 .file-card {
@@ -409,12 +426,12 @@
 .raw-text summary::after {
   content: '';
   margin-left: auto;
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid var(--ink-2);
-  border-bottom: 2px solid var(--ink-2);
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
   transform: rotate(45deg);
-  transition: transform 0.2s;
+  transition: transform 0.25s var(--ease);
 }
 
 .raw-text details[open] summary::after {
@@ -424,7 +441,7 @@
 .raw-text-title {
   display: flex;
   flex-direction: column;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
 }
 
@@ -441,8 +458,8 @@
   padding: 18px 20px;
   overflow: auto;
   border-radius: 12px;
-  background: #141a3d;
-  color: #dde3f7;
+  background: var(--raised);
+  color: var(--text);
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.65;
@@ -461,8 +478,12 @@
   list-style: none;
 }
 
+.history-list li {
+  animation: page-in 0.36s var(--ease) backwards;
+}
+
 .history-list li + li {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--rule);
 }
 
 .history-row {
@@ -474,20 +495,21 @@
   border-radius: 12px;
   color: inherit;
   text-decoration: none;
+  transition: background-color 0.12s;
 }
 
 .history-row:hover {
-  background: #f5f7fe;
+  background: var(--raised);
 }
 
 .history-avatar {
   flex: none;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--blue), var(--violet));
-  color: #fff;
-  font-weight: 700;
+  background: var(--active);
+  color: var(--text);
+  font-weight: 600;
   display: grid;
   place-items: center;
 }
@@ -519,10 +541,7 @@
 }
 
 .history-cost-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -534,7 +553,7 @@
 
 .history-message {
   padding: 20px 16px;
-  color: var(--ink-2);
+  color: var(--muted);
 }
 
 .history-footer {

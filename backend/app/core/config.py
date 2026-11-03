@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # The X-API-Key that callers of /api/public must send (public_api). Unset: every public
     # route answers 401, and the rest of the app still starts.
     public_api_key: SecretStr | None = None
+    # The bootstrap admin (auth), created at startup only if missing and never overwritten.
+    # Both optional: unset, no admin is created. ADMIN_PASSWORD needs 12 to 1024 characters.
+    admin_email: str | None = None
+    admin_password: SecretStr | None = None
     # Neon Object Storage (S3-compatible) for the candidates feature. All required: the app
     # won't start without them. RESUME_BUCKET is private (the original CVs);
     # PUBLIC_RESUME_BUCKET is public-read (the branded PDFs).

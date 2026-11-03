@@ -7,6 +7,7 @@
 4. **public_api:** the same extraction and branded PDF for outside systems (e.g. Loxo), behind an `X-API-Key` header and keyed by the caller's own `candidate_id` + `resume_id`: `POST /api/public/resumes` (JSON) and `GET /api/public/resumes/{candidate_id}/{resume_id}/pdf?template_id=1`.
 5. **ai_usage:** records every answered OpenAI call (model, call type, tokens, cost priced at that model) and shows usage and cost on the AI usage panel (`#/usage`, `GET /api/ai_usage`); the past-interviews list shows each CV's AI cost.
 6. **candidates:** a recruiter adds a candidate from one CV (`POST /api/candidates`, SSE): AI extraction, the branded PDF, and both files stored in Neon Object Storage (the original private, the PDF public). The candidate page (`#/candidates`) lists them with links, source and AI cost, and deletes them. `POST /api/public/pdf` (public_api) does the same for outside systems and returns the PDF.
+7. **auth:** login for the web app. One account per recruiter (by email), roles `admin` and `recruiter`, a 12-hour server-side session in an `HttpOnly` cookie. Every `/api` route needs a login except `/api/health`, `/api/public/*` (its own `X-API-Key`) and login/logout. Everyone can change their own password (`#/password`); the admin adds, resets and removes recruiters (`#/admin`). The only admin is created at startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
 The client project is MinistryHub branded resumes, triggered from Loxo.
 
@@ -17,14 +18,16 @@ The detailed design for each feature lives in `docs/features/<feature>.md`, writ
 - The switch to `gpt-5.6-luna` (`docs/features/model_switch.md`) is built, and its live check passed on 2026-11-03. It isn't pushed yet.
 - Rate limiting and the AI spending cap (`docs/features/rate_limit_and_spend_cap.md`) are designed and built.
 - `public_api` (`docs/features/public_api.md`) is designed and built; its migration awaits the user's approval to run on Aiven.
-- `candidates` (add a candidate with S3 storage, the candidate page, the public PDF endpoint; `docs/features/candidates.md`) is approved (2026-11-03) and built; its migration `3aee3f10cd78` ran on the local Postgres only (Aiven needs the user's go-ahead), and the live Neon and OpenAI checks are still to run.
+- `candidates` (add a candidate with S3 storage, the candidate page, the public PDF endpoint; `docs/features/candidates.md`) is approved (2026-11-03) and built; its migration `3aee3f10cd78` ran on the local Postgres and on Aiven (2026-11-03), and its live Neon and OpenAI checks passed.
+- `auth` (login, roles admin/recruiter, the admin page; `docs/features/auth.md`) is approved (2026-11-03) and built; its migration `381a21f5f9fb` ran on the local Postgres only (Aiven needs the user's go-ahead). Not pushed.
 
 ## Layout
 ```
 backend/
   app/
-    main.py                 # FastAPI app; mounts every feature router under /api, and the built
-                            #   frontend at / when backend/static exists (the Docker image)
+    main.py                 # FastAPI app; mounts every feature router under /api (the data routers
+                            #   with auth.require_user), the built frontend at / when backend/static
+                            #   exists (the Docker image), and a lifespan that creates the bootstrap admin
     core/                   # shared: config.py (settings from .env), database.py (engine, Base, get_db),
                             #   rate_limit.py (per-IP rate-limit middleware for /api)
     # features/*/service.py may raise HTTPException only for ai_usage.require_ai_budget (one shared copy)
@@ -34,7 +37,7 @@ backend/
 frontend/
   src/
     main.tsx, app/App.tsx   # entry + root component
-    shared/                 # shared: api/client.ts (fetch helpers, incl. the event-stream reader), format.ts (formatUsd), test/setup.ts
+    shared/                 # shared: api/client.ts (fetch helpers: apiGet, apiRequest, the event-stream reader; UNAUTHORIZED_EVENT on 401), format.ts (formatUsd), test/setup.ts
                             # (app/app.css holds the shared look, incl. the upload progress overlay)
     features/<feature>/     # one vertical slice per feature (see below)
   e2e/<feature>.spec.ts     # Playwright end-to-end flows
@@ -43,12 +46,14 @@ docs/                       # this file + docs/features/<feature>.md designs
 ```
 
 ## Request flow
-1. The browser loads the app from the Vite dev server (`:5173`). Deployed, FastAPI serves the built app itself from `backend/static`.
+0. At startup, the `lifespan` in `app/main.py` runs `auth.service.ensure_admin` once (creates the admin from `ADMIN_*` if missing).
+1. The browser loads the app from the Vite dev server (`:5173`). Deployed, FastAPI serves the built app itself from `backend/static`. The app calls `GET /api/auth/me`; a 401 shows the login page.
 2. Vite proxies `/api/*` to FastAPI (`:8000`). Deployed, `/api` is on the same origin.
 3. Middleware in `app/main.py`: the per-IP rate limit (`core/rate_limit.py`, 429 when over), then the 10 MB body limit (413).
-4. The feature's `router.py` receives the request.
-5. The feature's `service.py` does the work (optional; added once a slice has logic).
-6. A SQLAlchemy session from `get_db` talks to Postgres.
+4. The login check: `auth.router.require_user` (attached with `include_router(..., dependencies=...)` to every data router) finds the session from the `session` cookie, or answers 401 before the route's own dependencies. `/api/health`, `/api/public/*` and login/logout skip it.
+5. The feature's `router.py` receives the request.
+6. The feature's `service.py` does the work (optional; added once a slice has logic).
+7. A SQLAlchemy session from `get_db` talks to Postgres.
 
 ## Feature slice conventions
 **Backend: `backend/app/features/<feature>/`.** Create a file only when the slice needs it.
@@ -142,4 +147,5 @@ See `.claude/rules.md`, rule 5. In addition:
 | 2026-11-02 | Public API in the `public_api` slice: one shared key in the `X-API-Key` header (`PUBLIC_API_KEY`; unset = 401), its own table `public_resumes` keyed by the caller's unique `(candidate_id, resume_id)` (a repeat replaces, by `INSERT … ON CONFLICT DO UPDATE`), plain JSON instead of SSE, the PDF by `template_id` (only 1). Its AI calls are stored unlinked and count toward the spending cap; its POST shares the upload rate-limit bucket. | User choice (`docs/features/public_api.md`). A separate table, because `resume_intakes` rows need the interview answers and show in the web history. |
 | 2026-11-03 | **Built 2026-11-03** (`docs/features/model_switch.md`; live check passed 2026-11-03): every OpenAI call (structuring, OCR, OCR retry, and so `public_api`) switches from `gpt-4.1-mini` to `gpt-5.6-luna`, with `reasoning={"effort": "none"}` added next to `temperature=0`. `OPENAI_MODEL` stays a code constant, not an env var. (Supersedes the 2026-10-22 `gpt-4.1-mini` row.) | User choice: gpt-4.1-mini is removed on 2027-01-14 and failed both prompt-injection benchmark cases; gpt-5.6-luna passed them and costs less per CV. Luna rejects `temperature` at its default effort; `"none"` is the benchmarked setting. A constant keeps the model, its call parameters and its `PRICES` entry changing together. |
 | 2026-11-03 | `candidates` slice (approved and built 2026-11-03) (`docs/features/candidates.md`). **Storage:** Neon Object Storage (S3-compatible, path-style) through `boto3`. The original CVs go in the private `RESUME_BUCKET` (presigned links, 1 h); the branded PDFs go in the public `PUBLIC_RESUME_BUCKET` (permanent URL). Keys are random `candidates/{uuid}/`; storage is written before the row, with a best-effort delete on failure; delete removes the objects, then the row (Neon soft-deletes). **Data:** a `candidates` table (name, `source` `manual`/`api`, file type, two keys, `ai_cost_usd` set at save time); the AI calls are stored unlinked. **API:** `POST /api/candidates` streams `reading`, `extracting`, `generating`, `uploading`, then `done` (only the public URL) or `error`; `POST /api/public/pdf` (`template_id`, default 1) also saves a candidate. One `require_ai_budget`, in `ai_usage/service.py`. **Supersedes** "the original file isn't kept". | User choices 2026-11-03 plus the challenger's review. No queue (user). No login yet (accepted; next feature). |
-| Open | Render forwarded-header trust for the client IP (until then every visitor shares one rate-limit bucket), auth, OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |
+| 2026-11-03 (approved and built 2026-11-03) | Login in the `auth` slice (`docs/features/auth.md`). **Data:** `users` (email unique, scrypt hash, role `admin`/`recruiter` with a CHECK) and `user_sessions` (SHA-256 of the token, 12 h fixed expiry, cascade on user delete). **Sessions:** server-side; the token goes in an `HttpOnly; Secure; SameSite=Lax; Path=/api` cookie. **Hashing:** stdlib `hashlib.scrypt` (n=2^15, r=8, p=3), min 12 characters everywhere. **Accounts:** one bootstrap admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD` at startup (created only if missing, never overwritten). The admin page adds, resets and removes recruiters only; everyone can change their own password (other sessions end). **Guards:** `require_user` on every `/api` router except `health`, `public_api` and login/logout, and `require_admin` on admin routes, enforced by an OpenAPI-driven 401/403 test. **Rate limit:** login and password change share a 10/15 min bucket. No CSRF token. | User's answers 2026-11-03 plus the challenger's review. No new package. Cookies work for fetch, the SSE uploads and the PDF in a new tab; DB sessions make logout, resets and removals immediate; Lax + same origin covers CSRF (revisit with a custom domain). The login bucket is shared by all on Render until the client-IP fix (next step). |
+| Open | Render forwarded-header trust for the client IP (until then every visitor shares one rate-limit bucket, the login bucket included), OCR for images and DOCX, output formats, retention of stored CVs, a queue/retries for AI extraction | Not decided yet. Ask the user. |

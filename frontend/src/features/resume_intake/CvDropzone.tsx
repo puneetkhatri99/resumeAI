@@ -65,7 +65,6 @@ export function CvDropzone({ storesFile = false }: { storesFile?: boolean }) {
           {FILE_ICON}
         </span>
         <div>
-          <span className="step-label text-blue">Step 1</span>
           <h3>
             <label htmlFor={inputId}>CV</label>
           </h3>
