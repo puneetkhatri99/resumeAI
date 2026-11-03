@@ -21,6 +21,7 @@ from app.features.candidates.service import STORE_FAILED_MESSAGE
 from app.features.public_api import router
 from app.features.public_api.models import PublicResume
 from app.features.public_api.router import INVALID_KEY_MESSAGE
+from app.features.resume_generation.service import PdfRenderError
 from app.features.resume_intake.service import UNSUPPORTED_TYPE_MESSAGE
 from app.features.resume_structuring.service import AI_FAILED_MESSAGE, MISSING_CONTACT_MESSAGE
 from tests.conftest import FAKE_CALL_COST, FAKE_RESUME_DATA, FakeOpenAI, FakeS3
@@ -387,4 +388,80 @@ def test_the_spending_cap_is_402_on_the_pdf_endpoint(
     response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
 
     assert response.status_code == 402
+    assert fake_openai.calls == []
+
+
+# --- QA pass 2026-11-03: POST /api/public/pdf error paths ---
+
+
+def test_an_unsupported_file_on_the_pdf_endpoint_is_415(
+    client: TestClient, db_session: Session, fake_s3: FakeS3
+) -> None:
+    response = client.post(
+        NEW_PDF_URL,
+        headers=HEADERS,
+        files={"file": ("cv.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 32, "image/png")},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": UNSUPPORTED_TYPE_MESSAGE}
+    assert fake_s3.objects == {}
+
+
+def test_a_missing_file_on_the_pdf_endpoint_is_422(client: TestClient) -> None:
+    assert client.post(NEW_PDF_URL, headers=HEADERS).status_code == 422
+
+
+def test_a_render_failure_on_the_pdf_endpoint_is_500_and_stores_nothing(
+    client: TestClient,
+    db_session: Session,
+    fake_s3: FakeS3,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_render(html: str) -> bytes:
+        raise PdfRenderError("Could not create the PDF. Try again.")
+
+    monkeypatch.setattr(router, "render_pdf", failing_render)
+    last_candidate = max_candidate_id(db_session)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 500
+    assert fake_s3.objects == {}
+    assert candidates_after(db_session, last_candidate) == []
+
+
+def test_the_original_storage_failure_on_the_pdf_endpoint_leaves_no_object(
+    client: TestClient, db_session: Session, fake_s3: FakeS3
+) -> None:
+    fake_s3.fail_put_buckets.add(settings.resume_bucket)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": TXT_CV})
+
+    assert response.status_code == 502
+    assert fake_s3.objects == {}
+
+
+def test_the_cap_is_checked_before_the_template_on_the_pdf_endpoint(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, db_session: Session
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", Decimal(0))
+
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"template_id": "2"}, files={"file": TXT_CV}
+    )
+
+    assert response.status_code == 402
+
+
+def test_a_request_over_10_mb_on_the_pdf_endpoint_is_413(
+    client: TestClient, fake_openai: FakeOpenAI
+) -> None:
+    from app.main import MAX_REQUEST_BYTES
+
+    big = ("cv.txt", b"a" * (MAX_REQUEST_BYTES + 1), "text/plain")
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, files={"file": big})
+
+    assert response.status_code == 413
     assert fake_openai.calls == []

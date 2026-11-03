@@ -56,6 +56,23 @@ def test_blank_name_or_email_is_rejected(fake_openai: FakeOpenAI, field: str, bl
         extract_resume_data(CV_TEXT, [])
 
 
+def test_nul_characters_are_stripped_from_every_value(fake_openai: FakeOpenAI) -> None:
+    fake_openai.result = fake_openai.result.model_copy(
+        update={"name": "Jane\x00 Doe", "skills": ["Py\x00thon"]}
+    )
+
+    data = extract_resume_data(CV_TEXT, [])
+
+    assert (data.name, data.skills) == ("Jane Doe", ["Python"])
+
+
+def test_a_name_of_only_nul_is_a_missing_contact(fake_openai: FakeOpenAI) -> None:
+    fake_openai.result = fake_openai.result.model_copy(update={"name": "\x00"})
+
+    with pytest.raises(MissingContactError, match=MISSING_CONTACT_MESSAGE):
+        extract_resume_data(CV_TEXT, [])
+
+
 def test_text_at_the_limit_is_sent(fake_openai: FakeOpenAI) -> None:
     extract_resume_data("a" * MAX_CV_TEXT_CHARS, [])
 

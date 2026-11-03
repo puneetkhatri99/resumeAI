@@ -27,6 +27,7 @@ from app.features.candidates.schemas import Source
 logger = logging.getLogger(__name__)
 
 ORIGINAL_URL_EXPIRY_SECONDS = 3600
+MAX_FILENAME_NAME_CHARS = 100
 STORE_FAILED_MESSAGE = "Could not store the resume files. Try again."
 DELETE_FAILED_MESSAGE = "Could not delete the resume files. Try again."
 # The original's Content-Type by file type. It is always sent as an attachment: an HTML file
@@ -178,9 +179,11 @@ def pdf_content_disposition(name: str) -> str:
     """`inline` with the file name "MinistryHub - <name>.pdf", percent-encoded.
 
     The name is AI output, so it is always encoded (also /, \\, quotes, CR and LF). public_api
-    sends the same header with its PDFs.
+    sends the same header with its PDFs. The name is cut to MAX_FILENAME_NAME_CHARS so a very long
+    AI name can't make the header too big for storage.
     """
-    return f"inline; filename*=UTF-8''{quote(f'MinistryHub - {name}.pdf', safe='')}"
+    file_name = f"MinistryHub - {name[:MAX_FILENAME_NAME_CHARS]}.pdf"
+    return f"inline; filename*=UTF-8''{quote(file_name, safe='')}"
 
 
 def delete_objects_quietly(objects: list[tuple[str, str]]) -> None:

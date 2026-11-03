@@ -554,3 +554,64 @@ def test_a_database_failure_after_the_objects_are_deleted_is_503_and_a_retry_fin
     monkeypatch.setattr(db_session, "commit", real_commit)
     assert client.delete(f"{URL}/{row.id}").status_code == 204
     assert db_session.get(Candidate, row.id) is None
+
+
+# --- QA pass 2026-11-03: boundaries and hostile AI output ---
+
+
+@pytest.mark.parametrize(
+    "query", ["limit=0", "limit=101", "before_id=0", "before_id=2147483648", "before_id=x"]
+)
+def test_out_of_range_paging_values_are_422(client: TestClient, query: str) -> None:
+    assert client.get(f"{URL}?{query}").status_code == 422
+
+
+@pytest.mark.parametrize("query", ["limit=100", "limit=1", "before_id=2147483647"])
+def test_boundary_paging_values_are_accepted(
+    client: TestClient, db_session: Session, query: str
+) -> None:
+    assert client.get(f"{URL}?{query}").status_code == 200
+
+
+def test_has_more_is_false_when_exactly_a_page_is_left(
+    client: TestClient, db_session: Session
+) -> None:
+    rows = add_candidates(db_session, 3)
+    body = client.get(f"{URL}?before_id={rows[-1].id + 1}&limit=3").json()
+
+    assert body["has_more"] is False
+    assert [item["id"] for item in body["items"]] == [row.id for row in reversed(rows)]
+
+
+@pytest.mark.parametrize("candidate_id", ["0", "-1", "2147483648", "abc"])
+def test_deleting_a_bad_id_is_422(client: TestClient, candidate_id: str) -> None:
+    assert client.delete(f"{URL}/{candidate_id}").status_code == 422
+
+
+def test_a_hostile_name_stays_inside_the_encoded_file_name(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_s3: FakeS3
+) -> None:
+    name = 'Jane "Doe"\r\nX-Evil: 1/../\\'
+    fake_openai.result = FAKE_RESUME_DATA.model_copy(update={"name": name})
+
+    events = post_cv(client)
+
+    assert events[-1]["stage"] == "done"
+    [(_, put)] = [
+        item for item in fake_s3.objects.items() if item[0][0] == settings.public_resume_bucket
+    ]
+    disposition = put["ContentDisposition"]
+    assert "\r" not in disposition and "\n" not in disposition and '"' not in disposition
+    assert disposition.startswith("inline; filename*=UTF-8''MinistryHub%20-%20")
+
+
+def test_a_name_with_a_nul_character_is_stored_without_it(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI
+) -> None:
+    # Prompt-injected AI output can hold \u0000, which Postgres text rejects; extraction strips it.
+    fake_openai.result = FAKE_RESUME_DATA.model_copy(update={"name": "Jane\x00Doe"})
+
+    events = post_cv(client)
+
+    assert events[-1]["stage"] == "done"
+    assert db_session.scalars(select(Candidate.name)).all() == ["JaneDoe"]

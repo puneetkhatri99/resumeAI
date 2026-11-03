@@ -135,6 +135,19 @@ def extract_resume_data(cv_text: str, ai_calls: list[AiCall]) -> ResumeData:
     if data is None:
         logger.warning("AI extraction failed: no parsed output (a refusal)")
         raise AiExtractionError(AI_FAILED_MESSAGE)
+    # Postgres text and JSONB refuse NUL, so a crafted CV could otherwise fail every save.
+    data = ResumeData.model_validate(strip_nul(data.model_dump()))
     if not data.name.strip() or not data.email.strip():
         raise MissingContactError(MISSING_CONTACT_MESSAGE)
     return data
+
+
+def strip_nul(value: object) -> object:
+    """Return `value` (the AI result as dicts, lists and strings) with every NUL removed."""
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_nul(item) for item in value]
+    if isinstance(value, dict):
+        return {key: strip_nul(item) for key, item in value.items()}
+    return value

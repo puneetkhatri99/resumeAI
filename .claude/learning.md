@@ -24,6 +24,14 @@ Entry format:
   - **Trap again:** a Bash heredoc dropped one backslash from an escaped backslash in a Python test string (the percent-encoding test failed until it was fixed with the Edit tool), and another heredoc failed on nested quotes. Write such scripts with the Write tool.
 - **Applies to:** `candidates`, `public_api`, `ai_usage`, the Aiven migration, `backend/.env` and Render.
 
+### 2026-11-03: Tester's API pass on candidates: NUL in AI output, long file names
+- **Context:** the tester's API-only pass (local DB, fakes only) added 13 tests and found 1 bug and 1 gap.
+- **Learning:**
+  - **Bug: a NUL in an AI value gave a false 503 "database unavailable"** after the AI was paid. Postgres text/JSONB reject `\x00`, psycopg raises `DataError` (a `SQLAlchemyError`), and the router's `except SQLAlchemyError` reports it as the database being down: the same trap class as the out-of-range id (2026-10-22). **User's choice: strip NULs from the AI output** in one place, `extract_resume_data` (`strip_nul`), which covers candidates, interviews and both public APIs. A name of only NULs becomes blank, which is a 422 missing contact.
+  - **Gap: a very long AI name makes a ~12 KB Content-Disposition on the PUT,** which storage may refuse after the AI is paid. **User's choice: cut the name in the file name to 100 characters** (`MAX_FILENAME_NAME_CHARS`). The page and the PDF keep the whole name.
+  - Backend after the fixes: 399 passed (local DB).
+- **Applies to:** `resume_structuring`, `candidates`, `public_api`, and any `except SQLAlchemyError` that reports "database down".
+
 ### 2026-11-03: Candidates live checks passed (Neon + 1 OpenAI request)
 - **Context:** the approved live checks, run by the main session on a throwaway :8001 backend against local Postgres (scripts in this session's scratchpad: `live_candidates.py`). The user added `PUBLIC_RESUME_BUCKET=public-resume`; `RESUME_BUCKET=resume` is the private one (the `.env` comment above it, "formatted resume PDFs", is stale).
 - **Learning:**
