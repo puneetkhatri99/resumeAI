@@ -61,9 +61,6 @@ export function CvDropzone({ storesFile = false }: { storesFile?: boolean }) {
     // No aria-labelledby: the card would share the input's "CV" label.
     <section className="card intake-card">
       <div className="card-header">
-        <span className="icon-tile tile-blue" aria-hidden="true">
-          {FILE_ICON}
-        </span>
         <div>
           <h3>
             <label htmlFor={inputId}>CV</label>

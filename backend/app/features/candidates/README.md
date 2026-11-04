@@ -23,7 +23,7 @@
 
 On any error nothing is stored: objects already written are deleted (best effort), and the AI calls OpenAI answered are stored unlinked so they count toward the spending cap.
 
-**`GET /api/candidates?before_id=&limit=`**: `before_id` 1–2,147,483,647 (optional), `limit` 1–100 (default 20). **200** `{"items": [CandidateSummary], "has_more": bool}`, newest first. `CandidateSummary`: `id`, `name`, `created_at`, `source` (`"manual"` / `"api"`), `ai_cost_usd` (null when every call was unpriced), `original_resume_url` (presigned GET, expires after 1 hour), `new_resume_url` (permanent public URL). 422 bad paging; 503 database down.
+**`GET /api/candidates?before_id=&limit=`**: `before_id` 1–2,147,483,647 (optional), `limit` 1–100 (default 20). **200** `{"items": [CandidateSummary], "has_more": bool}`, newest first. `CandidateSummary`: `id`, `name`, `created_at`, `source` (`"manual"` / `"api"` / `"url"`), `ai_cost_usd` (null when every call was unpriced), `original_resume_url` (presigned GET, expires after 1 hour), `new_resume_url` (permanent public URL). 422 bad paging; 503 database down.
 
 **`DELETE /api/candidates/{candidate_id}`** (1–2,147,483,647): deletes both objects, then the row. **204**; 404 "Candidate not found."; 502 "Could not delete the resume files. Try again." (the row is kept); 503 database down (if the objects were already deleted the row stays with dead links, and a retry finishes: deleting a missing key succeeds in S3); 422 out-of-range id.
 
@@ -36,7 +36,7 @@ On any error nothing is stored: objects already written are deleted (best effort
 Uses `resume_intake.service` (`extract_text`, `structure_resume`, errors), `resume_structuring.service` (errors), `resume_generation.service` (`build_resume_html`, `render_pdf`, `PdfRenderError`) and `ai_usage.service` (`require_ai_budget`, `add_ai_calls`, `total_cost`, `save_ai_calls_without_intake`). `public_api` uses `store_candidate`, `FileStorageError` and `pdf_content_disposition`.
 
 ## Data
-Table `candidates` (migration `3aee3f10cd78_create_candidates_table.py`): `id` identity PK, `created_at` timestamptz default `now()`, `name` text (AI-extracted), `source` varchar(6) (`manual` = web app, `api` = `POST /api/public/pdf`; validated in code), `file_type` varchar(4), `original_key` text, `resume_key` text, `ai_cost_usd` numeric NULL (the successful upload's calls only, at save time). Not stored: the CV text and the structured data. The upload's `ai_calls` rows have `resume_intake_id` NULL, so they show unlinked on the AI usage panel.
+Table `candidates` (migration `3aee3f10cd78_create_candidates_table.py`): `id` identity PK, `created_at` timestamptz default `now()`, `name` text (AI-extracted), `source` varchar(6) (`manual` = web app, `api` = `POST /api/public/pdf` with a file, `url` = the same with a `file_url` (added 2026-11-04, shown as "API (URL)"); validated in code), `file_type` varchar(4), `original_key` text, `resume_key` text, `ai_cost_usd` numeric NULL (the successful upload's calls only, at save time). Not stored: the CV text and the structured data. The upload's `ai_calls` rows have `resume_intake_id` NULL, so they show unlinked on the AI usage panel.
 
 ## Storage (Neon Object Storage, S3-compatible)
 - **Settings** (all required; the app won't start without them): `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `RESUME_BUCKET` (private: the originals), `PUBLIC_RESUME_BUCKET` (public-read, set in the Neon Console: the branded PDFs).

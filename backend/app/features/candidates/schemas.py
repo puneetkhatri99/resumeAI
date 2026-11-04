@@ -7,8 +7,9 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-# Set by the system: "manual" for the web app upload, "api" for POST /api/public/pdf.
-Source = Literal["manual", "api"]
+# Set by the system: "manual" for the web app upload, "api" for POST /api/public/pdf with a
+# file, "url" for it with a file_url.
+Source = Literal["manual", "api", "url"]
 
 
 class CandidateEvent(BaseModel):

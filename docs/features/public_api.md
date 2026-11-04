@@ -38,3 +38,41 @@ Storing the CV text or file; listing public resumes; a frontend; per-client keys
 
 ## Known limits
 - The spending cap is checked once per upload (as for the intake), so a running upload can overshoot by its own cost.
+
+## CV by URL on `POST /api/public/pdf` (approved 2026-11-04)
+Callers such as Loxo usually already have the resume at a URL. `POST /api/public/pdf` takes either a multipart `file` or a form field `file_url`, and the server downloads the CV itself.
+
+**The user's decisions (2026-11-04, after the challenger's review):**
+- Only `/api/public/pdf` gets `file_url`, not `/api/public/resumes`.
+- Exactly one of `file` or `file_url` (an empty `file_url` counts as missing). Both or neither is a 422.
+- Only public **https** URLs on **port 443**, resolved over **IPv4 only**. An IPv6-only host is a 422.
+- **No redirects:** a 3xx is a 422 asking for the final URL. Revisit this if the client's links redirect.
+- **Every download failure is a 422** (bad URL, blocked address, DNS, timeout, remote 4xx or 5xx). Only a file over 10 MB is a 413.
+- The download uses **httpx** (already installed with FastAPI's extras), pinned as `httpx==0.28.1`.
+
+**Design** (`public_api/service.py`: `download_cv(url) -> bytes` and `CvDownloadError`, which carries `status_code` of 422 or 413):
+1. **Parse:** `httpx.URL(url)`; `httpx.InvalidURL` is a 422. The URL must be https, have a host, have no userinfo and use port 443 or no port. The host's ASCII (IDNA) form, `url.raw_host.decode("ascii")`, is used for DNS and SNI. `file_url` is at most 8,192 characters.
+2. **Resolve:** `socket.getaddrinfo(host, 443, family=AF_INET, type=SOCK_STREAM)`. Every address must be `is_global` and not `is_multicast`. `gaierror`, `UnicodeError` and an empty result are each a 422.
+3. **Pin the first checked IP** so a second DNS lookup can't swap in an internal address (DNS rebinding). The request URL is `url.copy_with(host=ip)`, with header `Host: <original netloc>` and `extensions={"sni_hostname": host}`. httpcore passes `sni_hostname` as `server_hostname`, so TLS still verifies the certificate against the real host name.
+4. **Request:**
+   - A **new `httpx.Client` for every download**, so a pooled connection verified for another host is never reused.
+   - `trust_env=False`, so no proxy env vars or `.netrc` apply.
+   - `follow_redirects=False`, with a 10 s timeout per operation.
+   - `Accept-Encoding: identity`.
+   - Any status other than 200 is a 422.
+5. **Size and time:**
+   - A `Content-Length` over 10 MB is a 413 straight away.
+   - Otherwise the body is read with `iter_raw()` (no decompression, so no decompression bomb), counting raw bytes, and passing 10 MB is a 413.
+   - An overall deadline of 30 s is checked in the read loop (`time.monotonic()`).
+6. **Privacy:** `file_url` (presigned links carry tokens) never appears in an error message or a log. The host and the remote status code are enough.
+
+**Router:** the order is key → spending cap → template 404 → one-of check → download, so a bad URL is never billed. `data = file.file.read() if file else download_cv(file_url)`, and the rest of the pipeline is unchanged. The downloaded bytes are stored as the original CV, the same as an upload. `CvDownloadError` gets its own `except` (it can't join `resume_intake.CV_ERRORS`, which would be a circular import).
+
+**Tests:** pytest never reaches the network. `socket.getaddrinfo` is monkeypatched and `httpx.MockTransport` is used. The mock asserts the pinned IP, the `Host` header, `sni_hostname`, `Accept-Encoding: identity`, and that the client is built with `trust_env=False`.
+
+**Known limits:**
+- A URL that needs a login or token (an authenticated Loxo link) fails with a 422.
+- Only the first resolved address is tried.
+- DNS lookup time is bounded only by the OS resolver (`getaddrinfo` has no timeout).
+
+**Source (user, 2026-11-04):** a candidate added through `file_url` is saved with source `url`, shown as "API (URL)" on the candidate page. A file sent to the same endpoint stays `api`. The value fits the existing `varchar(6)` column, so no migration is needed.

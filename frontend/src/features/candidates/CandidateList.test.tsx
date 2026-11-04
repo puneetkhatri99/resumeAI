@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { formatWhen } from '../../shared/format.ts'
 import type { CandidateSummary } from './api.ts'
 import { CandidateList } from './CandidateList.tsx'
 
@@ -46,7 +47,7 @@ describe('CandidateList', () => {
 
     await screen.findByRole('rowheader', { name: 'Jane Doe' })
     const row = within(rowOf('Jane Doe'))
-    const date = new Date(ROW.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const date = formatWhen(ROW.created_at)
     for (const text of [date, 'Manual', '$0.0012']) {
       expect(row.getByText(text)).toBeInTheDocument()
     }

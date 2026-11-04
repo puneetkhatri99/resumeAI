@@ -152,11 +152,8 @@ export function StructuredResume({ data }: StructuredResumeProps) {
       {shownSections.length > 0 && (
         <section className="card cv-details" aria-label="Details from the CV">
           {shownSections.map(({ title, entries }) => (
-            <section key={title} className={`cv-section cv-section-${SECTION_TONES[title]}`}>
+            <section key={title} className="cv-section">
               <div className="cv-section-header">
-                <span className={`icon-tile tile-${SECTION_TONES[title]}`} aria-hidden="true">
-                  {SECTION_ICONS[title]}
-                </span>
                 <h3>{title}</h3>
               </div>
               {title === 'Skills' ? (
@@ -184,62 +181,3 @@ export function StructuredResume({ data }: StructuredResumeProps) {
   )
 }
 
-// Each section's colour and icon on the result screen.
-const SECTION_TONES: Record<string, string> = {
-  Summary: 'amber',
-  Links: 'indigo',
-  Skills: 'pink',
-  Experience: 'blue',
-  Education: 'teal',
-  Projects: 'violet',
-  Certificates: 'orange',
-}
-
-const iconProps = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' } as const
-
-const SECTION_ICONS: Record<string, ReactNode> = {
-  Summary: (
-    <svg {...iconProps}>
-      <path d="M15 12h-5" />
-      <path d="M15 8h-5" />
-      <path d="M19 17V5a2 2 0 0 0-2-2H4" />
-      <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" />
-    </svg>
-  ),
-  Links: (
-    <svg {...iconProps}>
-      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
-      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
-    </svg>
-  ),
-  Skills: (
-    <svg {...iconProps}>
-      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" />
-      <circle cx="7.5" cy="7.5" r="1.5" />
-    </svg>
-  ),
-  Experience: (
-    <svg {...iconProps}>
-      <rect x="3" y="7" width="18" height="13" rx="2" />
-      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  ),
-  Education: (
-    <svg {...iconProps}>
-      <path d="m2 9 10-5 10 5-10 5z" />
-      <path d="M6 11v5c3 2 9 2 12 0v-5" />
-    </svg>
-  ),
-  Projects: (
-    <svg {...iconProps}>
-      <path d="m8 8-4 4 4 4" />
-      <path d="m16 8 4 4-4 4" />
-    </svg>
-  ),
-  Certificates: (
-    <svg {...iconProps}>
-      <circle cx="12" cy="9" r="6" />
-      <path d="m8.5 14-1.5 7 5-3 5 3-1.5-7" />
-    </svg>
-  ),
-}

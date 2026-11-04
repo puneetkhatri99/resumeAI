@@ -60,11 +60,6 @@ export function IntakeResult({ result, onReset }: IntakeResultProps) {
         <div className="result-aside">
           <section className="card assessment" aria-labelledby="your-assessment-heading">
             <div className="card-header">
-              <span className="icon-tile tile-violet" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" />
-                </svg>
-              </span>
               <h3 id="your-assessment-heading">Your assessment</h3>
             </div>
             <div className="rating-panel">
@@ -121,13 +116,6 @@ export function IntakeResult({ result, onReset }: IntakeResultProps) {
         <section className="card raw-text">
           <details open>
             <summary>
-              <span className="icon-tile tile-indigo" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 6h16" />
-                  <path d="M4 12h16" />
-                  <path d="M4 18h10" />
-                </svg>
-              </span>
               <span className="raw-text-title">
                 <span>Text read from the CV</span>
                 <span className="raw-text-subtitle">Exactly as extracted, before AI</span>

@@ -64,16 +64,20 @@ class FailingCommitSession:
     """Stand-in session whose commit fails the way it does when Postgres is down.
 
     Its one read, the spending-cap check's sum, answers $0, so the upload gets to the commit.
+    Only a commit that saves something fails: the cap check's empty commit passes.
     """
+
+    def __init__(self) -> None:
+        self.added = False
 
     def scalar(self, statement: object) -> Decimal:
         return Decimal(0)
 
     def add(self, instance: object) -> None:
-        pass
+        self.added = True
 
     def add_all(self, instances: object) -> None:
-        pass
+        self.added = True
 
     def flush(self) -> None:
         pass
@@ -82,7 +86,8 @@ class FailingCommitSession:
         pass
 
     def commit(self) -> None:
-        raise OperationalError("INSERT", {}, ConnectionRefusedError("connection refused"))
+        if self.added:
+            raise OperationalError("INSERT", {}, ConnectionRefusedError("connection refused"))
 
 
 def read_events(response: httpx2.Response) -> list[dict[str, Any]]:

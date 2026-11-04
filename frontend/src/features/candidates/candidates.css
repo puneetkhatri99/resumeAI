@@ -256,15 +256,12 @@
   min-width: 180px;
 }
 
+/* Plain links, so the candidate's name stays the loudest thing on the row. */
 .candidate-resumes {
   display: flex;
-  gap: 8px;
-}
-
-.candidate-resumes .button {
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 13px;
+  gap: 16px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .candidate-added {

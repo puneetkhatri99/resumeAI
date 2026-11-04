@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { formatWhen } from '../../shared/format.ts'
 import type { IntakeSummary } from './api.ts'
 import { IntakeHistory } from './IntakeHistory.tsx'
 
@@ -42,7 +43,7 @@ describe('IntakeHistory', () => {
 
     const row = await screen.findByRole('link', { name: /Jane Doe/ })
     expect(row).toHaveAttribute('href', '#/history/359')
-    const date = new Date(ROW.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const date = formatWhen(ROW.created_at)
     for (const text of ['jane.doe@example.com', date, '$0.0044', '4 / 5', 'On-site']) {
       expect(within(row).getByText(text)).toBeInTheDocument()
     }

@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 # turn instead of running a small Render instance out of memory and killing every upload with it.
 MAX_CONCURRENT_RENDERS = 2
 render_slots = threading.Semaphore(MAX_CONCURRENT_RENDERS)
+# How long a request waits for a free slot. Unbounded, one hung render would block every
+# request queued behind it.
+RENDER_WAIT_SECONDS = 120
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 ASSETS_DIR = TEMPLATES_DIR / "assets"
@@ -321,15 +324,16 @@ def render_pdf(html: str) -> bytes:
 
     Any Playwright failure (Chromium missing, a crash, a timeout) is logged and raised as
     PdfRenderError. Must run in a thread with no running asyncio loop (Playwright's sync API).
-    At most MAX_CONCURRENT_RENDERS run at once; the rest wait.
+    At most MAX_CONCURRENT_RENDERS run at once; the rest wait up to RENDER_WAIT_SECONDS, then
+    get PdfRenderError.
     """
+    # A bounded wait: if a render hangs, the requests queued behind it fail instead of hanging.
+    if not render_slots.acquire(timeout=RENDER_WAIT_SECONDS):
+        logger.warning("No PDF render slot free after %s s", RENDER_WAIT_SECONDS)
+        raise PdfRenderError(PDF_FAILED_MESSAGE)
     # shortcut: one browser launch per PDF (~1–2 s); keep a shared browser if volume grows
     try:
-        with (
-            render_slots,
-            sync_playwright() as playwright,
-            playwright.chromium.launch() as browser,
-        ):
+        with sync_playwright() as playwright, playwright.chromium.launch() as browser:
             page = browser.new_page(java_script_enabled=False)
             page.route("**/*", lambda route: route.abort())
             page.set_content(html)
@@ -346,3 +350,5 @@ def render_pdf(html: str) -> bytes:
     except PlaywrightError:
         logger.exception("Could not render the PDF")
         raise PdfRenderError(PDF_FAILED_MESSAGE) from None
+    finally:
+        render_slots.release()

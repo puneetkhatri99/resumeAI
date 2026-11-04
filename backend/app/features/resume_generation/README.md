@@ -47,7 +47,7 @@ No table and no column: the PDF isn't stored. It reads `resume_intakes.structure
 
 **Privacy:** the PDF is built in memory and returned; we write no files (Playwright creates and deletes Chromium's throwaway profile). Logs hold only the intake id, exception types and Playwright's messages, never CV text. The filename holds the candidate's name (user's choice). **Login and sequential ids:** the route needs a login (`auth.require_user`, attached in `app/main.py`); any logged-in user can open any intake's PDF by id (all recruiters see all interviews).
 
-**Known limits (accepted):** one Chromium launch per PDF (about 1 s warm, 4 s cold); `page.pdf` has no timeout, so a hung Chromium holds one worker thread; the request's DB session stays open while rendering; the branding images are ~180 dpi rasters; Inter is a look-alike of the paid TT Interphases; dates the parser can't read hide the duration.
+**Known limits (accepted):** one Chromium launch per PDF (about 1 s warm, 4 s cold); `page.pdf` has no timeout, so a hung Chromium holds one worker thread and one of the 2 render slots (`MAX_CONCURRENT_RENDERS`); a request waits at most `RENDER_WAIT_SECONDS` (120 s) for a slot, then gets the 500; the request's DB session stays open while rendering (uploads give their connection back after the spending-cap check, `ai_usage.require_ai_budget`); the branding images are ~180 dpi rasters; Inter is a look-alike of the paid TT Interphases; dates the parser can't read hide the duration.
 
 ## Tests
 `backend/tests/features/resume_generation/`

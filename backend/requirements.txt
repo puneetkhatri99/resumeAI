@@ -13,6 +13,8 @@ openai==3.36.1
 playwright==1.64.0
 # Already installed through fastapi[standard...]; pinned because resume_generation imports it.
 jinja2==3.1.6
+# Already installed through fastapi[standard...]; pinned because public_api downloads CVs with it.
+httpx==0.28.1
 # candidates: Neon Object Storage (S3-compatible). boto3's own dependencies are pinned too.
 boto3==1.43.123
 botocore==1.43.123

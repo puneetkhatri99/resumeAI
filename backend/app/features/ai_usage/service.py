@@ -177,6 +177,10 @@ def require_ai_budget(db: Annotated[Session, Depends(get_db)]) -> None:
     """
     try:
         cap_reached = ai_spend_cap_reached(db)
+        # Ends the read transaction, so the connection goes back to the pool during the long AI
+        # and PDF work; the request takes one again only to save. (commit, not rollback: under
+        # the tests' db_session a rollback would undo the test's own rows.)
+        db.commit()
     except SQLAlchemyError:
         logger.exception("Could not check the AI spending cap: database error")
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, DATABASE_DOWN_MESSAGE) from None

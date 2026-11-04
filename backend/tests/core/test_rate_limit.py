@@ -6,8 +6,10 @@ tests/conftest.py) starts each test with no requests counted.
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core import rate_limit
+from app.core.config import settings
 from app.core.rate_limit import (
     API_LIMIT,
     API_WINDOW_SECONDS,
@@ -96,6 +98,33 @@ def test_the_31st_upload_to_each_new_upload_path_is_429(
 
     assert response.status_code == 429
     assert response.headers["retry-after"] == str(UPLOAD_WINDOW_SECONDS)
+
+
+def test_a_valid_public_api_key_is_counted_apart_from_its_ip(
+    client: TestClient, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Uploads with the key don't use up the IP's count (web users behind Render's proxy share
+    it), and the key holder still hits the same hourly limit. A wrong key is counted by IP.
+    """
+    monkeypatch.setattr(settings, "public_api_key", SecretStr("the-key"))
+    app.dependency_overrides[require_ai_budget] = lambda: None
+    with_key = {"X-API-Key": "the-key"}
+    for _ in range(UPLOAD_LIMIT):
+        assert client.post("/api/public/pdf", headers=with_key).status_code == 422
+
+    assert client.post("/api/public/pdf", headers=with_key).status_code == 429
+    assert client.post("/api/public/pdf", headers={"X-API-Key": "wrong"}).status_code == 401
+
+
+def test_a_non_ascii_api_key_is_a_401_not_a_500(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Starlette decodes headers as latin-1; compare_digest raises on a non-ASCII str."""
+    monkeypatch.setattr(settings, "public_api_key", SecretStr("the-key"))
+
+    response = client.post("/api/public/pdf", headers={"X-API-Key": "é".encode("latin-1")})
+
+    assert response.status_code == 401
 
 
 def test_requests_outside_api_are_not_counted(client: TestClient, clock: FakeClock) -> None:

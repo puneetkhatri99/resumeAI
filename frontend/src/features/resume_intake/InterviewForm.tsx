@@ -125,12 +125,6 @@ export function InterviewForm({ onSubmitted }: InterviewFormProps) {
         <fieldset className="intake-answers" disabled={isSubmitting}>
           <section className="card intake-card" aria-labelledby="availability-heading">
             <div className="card-header">
-              <span className="icon-tile tile-teal" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 7v5l3 2" />
-                </svg>
-              </span>
               <div>
                 <h3 id="availability-heading">Availability &amp; pay</h3>
               </div>
@@ -161,11 +155,6 @@ export function InterviewForm({ onSubmitted }: InterviewFormProps) {
 
           <section className="card intake-card" aria-labelledby="assessment-heading">
             <div className="card-header">
-              <span className="icon-tile tile-violet" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" />
-                </svg>
-              </span>
               <div>
                 <h3 id="assessment-heading">Interviewer assessment</h3>
               </div>

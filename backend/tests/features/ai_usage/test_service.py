@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.database import SessionLocal, engine
 from app.features.ai_usage.models import AiCall
 from app.features.ai_usage.service import (
     AI_SPEND_CAP_MESSAGE,
@@ -178,6 +179,21 @@ def test_require_ai_budget_passes_below_the_cap(
     monkeypatch.setattr(settings, "ai_spend_cap_usd", total_before + Decimal("0.01"))
 
     assert require_ai_budget(db_session) is None
+
+
+def test_require_ai_budget_returns_the_connection_to_the_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The upload's long AI and PDF work must not hold a pooled connection (16+ at once would
+    wait 30 s and get a false 503). A plain session: it only reads, so nothing is written.
+    """
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", Decimal("1000000000"))
+    checked_out_before = engine.pool.checkedout()
+    with SessionLocal() as session:
+        require_ai_budget(session)
+
+        assert not session.in_transaction()
+        assert engine.pool.checkedout() == checked_out_before
 
 
 def test_require_ai_budget_is_402_at_the_cap(

@@ -2,11 +2,11 @@
 POST a resume under the caller's own candidate and resume ids and get the AI-extracted details
 back as JSON; GET the branded MinistryHub PDF for a stored pair; or POST a resume and get its
 branded PDF's permanent public URL and its details (it is also saved as a candidate, source
-"api").
+"api"); that last one also takes the CV as a public https file_url instead of a file (source
+"url").
 """
 
 import logging
-import secrets
 from datetime import date
 from typing import Annotated
 
@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import is_public_api_key
 from app.core.database import get_db
 from app.features.ai_usage.service import (
     AiCall,
@@ -40,7 +40,12 @@ from app.features.candidates.service import (
     store_candidate,
 )
 from app.features.public_api.schemas import PublicId, PublicPdfResponse, PublicResumeResponse
-from app.features.public_api.service import get_public_resume, save_public_resume
+from app.features.public_api.service import (
+    CvDownloadError,
+    download_cv,
+    get_public_resume,
+    save_public_resume,
+)
 from app.features.resume_generation.service import PdfRenderError, build_resume_html, render_pdf
 from app.features.resume_intake.service import (
     CV_ERRORS,
@@ -68,8 +73,7 @@ def require_api_key(api_key: Annotated[str | None, Security(api_key_header)]) ->
     Also 401 when PUBLIC_API_KEY isn't set (or is empty), so the public API is closed until
     it is configured. Compared in constant time.
     """
-    expected = settings.public_api_key.get_secret_value() if settings.public_api_key else ""
-    if not expected or not api_key or not secrets.compare_digest(api_key, expected):
+    if not is_public_api_key(api_key):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             INVALID_KEY_MESSAGE,
@@ -160,32 +164,43 @@ def read_public_resume_pdf(
 # Must stay a plain def: Playwright's sync API fails inside an async def (running event loop).
 @router.post("/pdf", response_model=PublicPdfResponse, dependencies=[Depends(require_ai_budget)])
 def create_pdf(
-    file: UploadFile,
     db: Annotated[Session, Depends(get_db)],
+    file: UploadFile | None = None,
+    file_url: Annotated[str | None, Form(max_length=8192)] = None,
     template_id: Annotated[int, Form()] = MINISTRYHUB_TEMPLATE_ID,
 ) -> PublicPdfResponse:
-    """Read the CV, have AI extract its details, render the branded PDF for `template_id` (only
-    1, MinistryHub), save it as a candidate (source "api") with both files stored, and return
-    JSON (200) with the PDF's permanent public URL and the extracted details.
+    """Read the CV (an uploaded `file`, or downloaded from a public https `file_url`), have AI
+    extract its details, render the branded PDF for `template_id` (only 1, MinistryHub), save it
+    as a candidate (source "api" for a file, "url" for a file_url) with both files stored, and
+    return JSON (200) with the PDF's permanent public URL and the extracted details.
 
-    401 bad key; 402 spending cap; 404 unknown template (before any AI call); 415 not a PDF,
-    DOCX, DOC or TXT; 422 invalid form or unusable CV text; 500 Chromium failed; 502 an AI call
-    or the file storage failed (no PDF then); 503 database unavailable. On any error nothing is
-    stored, but the AI calls OpenAI answered (and billed) are stored unlinked. Usually 5-30 s;
-    callers should allow 10 minutes.
+    401 bad key; 402 spending cap; 404 unknown template (before any AI call); 413 the CV at
+    file_url is over 10 MB; 415 not a PDF, DOCX, DOC or TXT; 422 invalid form (also both or
+    neither of file and file_url), file_url can't be downloaded (before any AI call) or unusable
+    CV text; 500 Chromium failed; 502 an AI call or the file storage failed (no PDF then); 503
+    database unavailable. On any error nothing is stored, but the AI calls OpenAI answered (and
+    billed) are stored unlinked. Usually 5-30 s; callers should allow 10 minutes.
     """
     if template_id != MINISTRYHUB_TEMPLATE_ID:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Template not found.")
+    if (file is None) == (not file_url):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Send exactly one of file or file_url."
+        )
     # Every AI call OpenAI answers, collected for the usage panel and the candidate's cost.
     ai_calls: list[AiCall] = []
     try:
-        data = file.file.read()
+        data = file.file.read() if file else download_cv(file_url)
         file_type, text, read_by_ocr = extract_text(data, ai_calls)
         _, resume = structure_resume(data, file_type, text, read_by_ocr, ai_calls)
         pdf = render_pdf(build_resume_html(resume, date.today()))
-        candidate = store_candidate(db, data, file_type, pdf, resume.name, "api", ai_calls)
+        source = "api" if file else "url"
+        candidate = store_candidate(db, data, file_type, pdf, resume.name, source, ai_calls)
         # Read inside the try: after the commit, reading the key reloads the row.
         url = public_url(candidate.resume_key)
+    except CvDownloadError as exc:
+        # Its own except: it can't join resume_intake's CV_ERRORS (circular import).
+        status_code, detail = exc.status_code, str(exc)
     except CV_ERRORS as exc:
         status_code, detail = cv_error_status(exc), str(exc)
     except FileStorageError as exc:

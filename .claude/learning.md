@@ -13,6 +13,73 @@ Entry format:
 
 ---
 
+### 2026-11-04: Concurrency fixes for the public PDF API (review items 3, 4, 9)
+- **Context:** the user asked how 10 parallel `POST /api/public/pdf` requests are handled, then said "fix and remove the dead code, don't break anything".
+- **Learning:**
+  - **Render slots wait at most 120 s** (`RENDER_WAIT_SECONDS`); a hung Chromium no longer blocks the queue forever. `page.pdf()` itself still has no timeout.
+  - **`require_ai_budget` ends its read transaction with `db.commit()`**, so an upload holds no pooled connection during the AI/PDF work. Not `rollback()`: under `db_session` that undoes the test's own rows. The `FailingCommitSession` stubs now fail only a commit that saves something.
+  - **A valid `X-API-Key` is rate-limited by the key, not the IP** (`PUBLIC_API_KEY_CLIENT`), so the public caller doesn't share Render's proxy-IP bucket with web users. The key check is shared as `core.config.is_public_api_key`; it compares bytes, which also fixed the non-ASCII-key 500 (through the middleware it would otherwise have hit every `/api` route).
+  - **Dead code:** a name-reference scan of `app/` found none (every hit was a route handler); the fix's own leftovers (`secrets`, `settings` imports in `public_api/router.py`) were removed.
+  - **Not changed:** `UPLOAD_LIMIT` stays 30/hour (waiting on the user's expected volume); disconnect cost (item 2) left as is.
+  - **2 candidates tests fail on the local DB** because of the 3 example candidates (523-525): they assume an empty `candidates` table. Not caused by this change.
+- **Applies to:** `resume_generation.render_pdf`, `ai_usage.require_ai_budget`, `core/rate_limit.py`, `public_api`.
+- **Live check (user: "test 10 random s3 documents by URL"):** 10 synthetic CVs (6 PDF, 2 DOCX, 2 TXT) were put in the private Neon bucket under `s3-url-test/` and sent as 1-hour presigned URLs, all 10 at once, to `POST /api/public/pdf` on a non-reloading :8001 backend (local DB). **10/10 were 200** in 10.7–15.5 s each (16.8 s for all 10); every name and email was right, with 2 jobs and 1 education each; every returned PDF URL opened anonymously (200, a real PDF). 10 OpenAI requests, $0.0049 in total; no error or warning in the log. Local candidates 577–586 (source `url`) were kept. Reading `backend/.env` from Bash is blocked by auto mode ("Credential Materialization"); load settings through `app.core.config` instead. Script: this session's scratchpad `s3_test\run_s3_test.py`.
+
+### 2026-11-04: file_url checked for Loxo's presigned S3 links
+- **Context:** the user will send Loxo's S3 resume links to `POST /api/public/pdf` as `file_url` and wants it to work and be fast.
+- **Learning:**
+  - **The signature survives:** httpx sends a presigned URL's path and query byte for byte after the IP pinning (test `test_a_presigned_s3_url_is_sent_byte_for_byte`), and the Host header is the real bucket host (SigV4 signs `host`).
+  - **Real AWS S3 works** in all three styles (virtual-hosted, path, regional): about 1 s each from this machine (India → us-east-1), so a few hundred ms from Render. A missing key is a 422 "answered 404"; an expired link will be "answered 403".
+  - **`file_url` limit raised from 2,048 to 8,192 characters:** a link signed with temporary AWS credentials carries `X-Amz-Security-Token` and was already 1,588 characters with a short token.
+  - **Still refused:** a link that redirects (e.g. a Loxo API download URL that 302s to S3). Send the final S3 URL.
+- **Applies to:** `public_api` `download_cv`, and the Loxo integration.
+
+### 2026-11-04: Devil's-advocate review: 23 issues documented, not fixed
+- **Context:** the user installed the `devils-advocate` command (`.claude/commands/devils-advocate.md`, from github.com/richiethomas/claude-devils-advocate, with `master` changed to `main`) and asked to use it to break the app. It reviews only a branch's diff against `main`, so on `main` it sees nothing; this time the method was applied to the whole app.
+- **Learning (the user's decision):** "just document it, I will fix them later". Every issue is in `docs/review_issues.md` (23 items, all open, with where, scenario and fix). The top 5: a PDF zlib bomb (1 MB → 2.1 GB memory), paid AI calls lost on client disconnect (the cap never trips), PDF render slots with no timeout, a DB connection held for the whole upload, and an expired session wiping the interview form. Items 12–13 belong to the uncommitted "CV from a link" work.
+- **Applies to:** the next fix round; update the file's status as items ship.
+
+### 2026-11-04: Minimalist UI polish (design-taste-frontend review)
+- **Context:** the user asked for a more beautiful, easy-to-understand, minimalist UI. A review against the skill's app-screen rules found the app already close; the user chose a polish pass, not a restyle.
+- **Learning (the user's decisions):**
+  - **AI usage is a developer page: leave its UI alone.**
+  - Built: the candidate list's "New resume"/"Original" are plain links (no black button per row); Add candidate's "Start" is the black primary, so yellow stays on the top-bar action only; no icon squares before card or section titles (the file card's icon stays); lists show "Today, 8:42 PM", "Yesterday, …", "Nov 1", or "Nov 1, 2025" (`formatWhen` in `shared/format.ts`; the full date is the hover title); past-interview columns have fixed widths on wide screens so they line up.
+  - **No candidate search for now.**
+- **Learning (tooling):** screenshots without the backend or real data: Playwright on the Vite dev server with `page.route` faking `/api`. Match with `(url) => url.pathname.startsWith('/api/')`, not `'**/api/**'`: the glob also catches the source module `src/shared/api/client.ts`, and the page renders blank (MIME error).
+- **Applies to:** every frontend screen, and any later UI review.
+
+### 2026-11-04: Source "url", example candidates, local DB, and why Aiven feels slow locally
+- **Context:** the user asked for a separate source for candidates added by `file_url`, for example PDFs in the DB, and for the local server to use the local DB.
+- **Learning:**
+  - **Source `url`** ("API (URL)" on the candidate page; the user's pick) fits `varchar(6)`, so no migration was needed. A file sent to `/api/public/pdf` stays `api`.
+  - **`backend/.env` now points at the local Postgres** (user: "attach my local to my local DB"). The Aiven line is commented out. `.env` isn't watched by `fastapi dev`, so a restart is needed after editing it.
+  - **3 example candidates on the local DB** (ids 523–525: Samuel Okafor, Hannah Lindqvist, David Reyes; all fictional). They went through `file_url`, which made real OpenAI requests (about $0.0005 each). Their source CVs stay in the public bucket under `examples/`. Script: this session's scratchpad `add_examples.py`.
+  - **Reload race:** the first example request reached the old worker while `fastapi dev` was reloading after a `router.py` edit, so it was saved as `api` and fixed by hand. After editing backend code, wait for "Application startup complete" before a live request.
+  - **Why Aiven is slow from here:** a TCP round trip from this machine to Aiven (159.223.17.206, DigitalOcean) takes about 150 ms, against under 1 ms to local Postgres. Every query costs at least one round trip, `pool_pre_ping` adds one per checkout, and a new TLS connection takes several. Render sits near Aiven, so the same page is fast there.
+- **Applies to:** the candidate page, local development, and any live check.
+
+### 2026-11-04: CV by URL on POST /api/public/pdf built
+- **Context:** design section "CV by URL" in `docs/features/public_api.md`, approved by the user on 2026-11-04 after the challenger's review; built by the developer agent. No network, OpenAI or Neon call; pytest on the local Postgres.
+- **Learning (the user's decisions):**
+  - Only `/api/public/pdf` takes `file_url`, not `/api/public/resumes`.
+  - Exactly one of `file` or `file_url` (empty counts as missing); both or neither is a 422.
+  - Only public https URLs on port 443, resolved over IPv4 only (an IPv6-only host is a 422).
+  - No redirects: a 3xx is a 422 asking for the final URL. Revisit if the client's links redirect.
+  - Every download failure is a 422; only a file over 10 MB is a 413.
+  - httpx, already installed, is now pinned (`httpx==0.28.1`).
+- **Learning (found while building):**
+  - **`httpx.Response(200, content=b"...")` counts as already read,** so `iter_raw()` raises `StreamConsumed` under `MockTransport`. Fake bodies use `content=iter([...])` (real transports are unaffected).
+  - `httpx.URL` drops the default port, so `https://host:443/` has `port` None; `https://host:abc/` and `https://[::1/` raise `InvalidURL`, while `not a url` parses with an empty scheme.
+  - Patching `httpx.Client` in tests is safe: the app's `TestClient` and the OpenAI SDK use `httpx2`.
+- **Real-network check (main session, user asked "download by real URL"; `download_cv` called directly, so no AI, DB or storage):**
+  - **Two real PDFs downloaded intact:** w3.org's dummy.pdf (13 KB) and pdf.js `tracemonkey.pdf` via raw.githubusercontent.com (1 MB).
+  - **Refused as designed:** a github.com `/raw/` link (302 → 422 "Send the final URL") and `localhost` (422).
+  - **The pinned IP still verifies the real certificate.** Connecting to GitHub's IP with `sni_hostname` "www.w3.org" failed: `CERTIFICATE_VERIFY_FAILED: Hostname mismatch`.
+  - **Trap:** badssl.com is reset by this network, so it can't prove anything here. A wrong SNI against a Cloudflare IP can also pass, because Cloudflare holds certificates for many hosts. To test a mismatch, pin one CDN's IP with another host's name.
+  - **Trap again:** a Bash heredoc with nested quotes failed ("unexpected EOF"); tests and doc edits went through the Write tool.
+  - Backend: 706 passed (local DB, the one real render included).
+- **Applies to:** `public_api`, `docs/public_api_guide.md`, and any later code that fetches a URL a caller supplies.
+
 ### 2026-11-03: Tester's API pass on resume_upgrade (local DB, fakes only)
 - **Context:** about 60 edge-case tests added (dates, ordering, phone, link hosts, `keep_proven_skills`, hostile summary, old rows with extra keys through the intake read, the branded PDF and the public PDF). Backend: 643 passed, 1 failing on purpose.
 - **Learning:**
@@ -26,6 +93,7 @@ Entry format:
 - **Context:** the user found a PDF body "confusing" next to the other JSON endpoints and asked for the storage link instead.
 - **Learning (the user's decisions):** the response is JSON `{url, data}`: `url` is the branded PDF's permanent public URL (the same link `POST /api/candidates` gives), `data` the extracted `ResumeData`. The path stays `/api/public/pdf`. Nothing else changed (it still saves the candidate, source `api`; same errors). Docs updated: `docs/public_api_guide.md` section 3, the public_api README, architecture.md, and a note in `docs/features/candidates.md`.
 - **Applies to:** `public_api`, the outside callers' guide, and anyone already calling `/api/public/pdf` (they must read JSON now).
+- **Pushed and deployed (user: "push the code"):** `main` `915c9a8..3aaf6a8` with the resume upgrade. Render was live about 80 s after the push (checked by `PublicPdfResponse` appearing in `/openapi.json`, no AI call): health 200 (database ok), `/api/candidates` 401, `/api/public/pdf` 401 without a key, `/` 200. No migration was needed.
 
 ### 2026-11-03: resume_upgrade live check, and the skills cap
 - **Context:** the user approved the sample PDF (navy text `#13293d` kept, long URLs may wrap mid-word) and up to 6 live OpenAI requests. The main session ran 4, through `POST /api/public/resumes` on a throwaway :8001 backend with the local DB (scripts and CVs in this session's scratchpad `upg\`); the 4 `public_resumes` rows were deleted, their `ai_calls` stay.

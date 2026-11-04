@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../../shared/api/client.ts'
-import { formatUsd } from '../../shared/format.ts'
+import { formatFullDate, formatUsd, formatWhen } from '../../shared/format.ts'
 import { deleteCandidate, listCandidates, type CandidateSummary } from './api.ts'
 import './candidates.css'
 
 const LOAD_ERROR_MESSAGE = 'Could not load the candidates.'
 const DELETE_ERROR_MESSAGE = 'Could not delete the candidate. Try again.'
 const DELETE_CONFIRM_MESSAGE = 'Delete this candidate and both resume files?'
-const SOURCE_LABELS: Record<CandidateSummary['source'], string> = { manual: 'Manual', api: 'API' }
+const SOURCE_LABELS: Record<CandidateSummary['source'], string> = { manual: 'Manual', api: 'API', url: 'API (URL)' }
 
 /**
  * The candidate page (#/candidates): a table of candidates, newest first, 20 at a time with "Load more".
@@ -108,17 +108,17 @@ export function CandidateList() {
                       </th>
                       <td>
                         <span className="candidate-resumes">
-                          <a className="button button-primary button-small" href={item.new_resume_url} target="_blank" rel="noopener noreferrer">
+                          <a href={item.new_resume_url} target="_blank" rel="noopener noreferrer">
                             New resume
                           </a>
-                          <a className="button button-outline button-small" href={item.original_resume_url} target="_blank" rel="noopener noreferrer">
+                          <a href={item.original_resume_url} target="_blank" rel="noopener noreferrer">
                             Original
                           </a>
                         </span>
                       </td>
                       <td className="candidate-added">
-                        <time dateTime={item.created_at}>
-                          {new Date(item.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                        <time dateTime={item.created_at} title={formatFullDate(item.created_at)}>
+                          {formatWhen(item.created_at)}
                         </time>
                       </td>
                       <td>

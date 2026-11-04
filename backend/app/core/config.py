@@ -1,5 +1,6 @@
 """Application settings, read from environment variables and backend/.env."""
 
+import secrets
 from decimal import Decimal
 from pathlib import Path
 
@@ -40,3 +41,16 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def is_public_api_key(api_key: str | None) -> bool:
+    """True when `api_key` matches PUBLIC_API_KEY, compared in constant time.
+
+    Always False while PUBLIC_API_KEY is unset or empty. Shared by public_api (the 401 check)
+    and the rate limiter (which counts a key holder by key, not by IP).
+    """
+    expected = settings.public_api_key.get_secret_value() if settings.public_api_key else ""
+    # Bytes: compare_digest raises TypeError on a non-ASCII str (a header like "X-API-Key: é").
+    return bool(
+        expected and api_key and secrets.compare_digest(api_key.encode(), expected.encode())
+    )

@@ -551,6 +551,23 @@
   font-size: 13px;
 }
 
+/* Fixed widths on wide screens, so the date, cost and badges line up from row to row. */
+@media (min-width: 960px) {
+  .history-date {
+    width: 128px;
+    text-align: right;
+  }
+
+  .history-cost {
+    width: 64px;
+  }
+
+  .history-badges {
+    width: 132px;
+    justify-content: flex-end;
+  }
+}
+
 .history-message {
   padding: 20px 16px;
   color: var(--muted);

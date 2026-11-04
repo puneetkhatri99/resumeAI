@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatUsd } from '../../shared/format.ts'
+import { formatFullDate, formatUsd, formatWhen } from '../../shared/format.ts'
 import { listResumeIntakes, type IntakeSummary } from './api.ts'
 import './resumeIntake.css'
 
@@ -79,9 +79,9 @@ export function IntakeHistory() {
                       <span className="history-name">{item.candidate_name || item.original_filename}</span>
                       {item.candidate_email && <span className="history-email">{item.candidate_email}</span>}
                     </span>
-                    <span className="history-date">
-                      {new Date(item.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-                    </span>
+                    <time className="history-date" dateTime={item.created_at} title={formatFullDate(item.created_at)}>
+                      {formatWhen(item.created_at)}
+                    </time>
                     <span className="history-cost">
                       <span className="history-cost-label">AI cost</span>
                       {formatUsd(item.ai_cost_usd)}

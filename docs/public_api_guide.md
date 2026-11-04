@@ -149,8 +149,19 @@ with open("resume-branded.pdf", "wb") as f:
 
 | Field | Type | Rules |
 | --- | --- | --- |
-| `file` | file | PDF, DOCX, DOC or TXT; at most 4 pages; scanned PDFs are read by OCR |
+| `file` | file | PDF, DOCX, DOC or TXT; at most 4 pages; scanned PDFs are read by OCR. Send this **or** `file_url`. |
+| `file_url` | string | A public `https` link to the resume; ResumeAI downloads it. At most 8,192 characters. Send this **or** `file`. |
 | `template_id` | integer | Optional, default `1` (MinistryHub, the only template). Any other number is `404` before the resume is processed. |
+
+Send **exactly one** of `file` and `file_url`; both or neither is `422` (an empty `file_url` counts as not sent).
+
+**Rules for `file_url`:**
+- `https` only, on the standard port (443), with no user name or password in the link.
+- The host must resolve to a **public IPv4 address**; IPv6-only hosts and internal addresses are refused.
+- **No redirects:** if the link answers with a redirect (3xx) you get `422`; send the final URL instead.
+- The link must answer `200` with the file directly. Links that need a login or a session fail with `422`.
+- The file may be at most 10 MB (`413`), and the download must finish within 30 seconds.
+- Signed or token links are fine; ResumeAI never puts the link in an error message or a log.
 
 **Response `200`** (`application/json`):
 
@@ -175,6 +186,16 @@ curl -X POST \
   -H "X-API-Key: $RESUMEAI_API_KEY" \
   -F "template_id=1" \
   -F "file=@resume.pdf" \
+  "https://ai-resume-data-extractor.onrender.com/api/public/pdf"
+```
+
+**curl, with a link instead of a file:**
+
+```bash
+curl -X POST \
+  -H "X-API-Key: $RESUMEAI_API_KEY" \
+  -F "template_id=1" \
+  -F "file_url=https://files.example.com/resumes/priya-raman.pdf" \
   "https://ai-resume-data-extractor.onrender.com/api/public/pdf"
 ```
 
@@ -203,9 +224,11 @@ Every error body is JSON with a `detail` field. For our own errors `detail` is a
 | `401` | all | Missing or wrong `X-API-Key` | Check the key |
 | `402` | extract, one-call PDF | The service's AI spending limit is reached; uploads are paused | Contact the ResumeAI team; stored PDFs still work |
 | `404` | PDF, one-call PDF | `Template not found.` or `Resume not found.` (pair never extracted) | Use `template_id=1`; extract first |
-| `413` | extract, one-call PDF | Request larger than 10 MB | Send a smaller file |
+| `413` | extract, one-call PDF | Request larger than 10 MB, or the file at `file_url` is (`The CV at file_url is larger than 10 MB.`) | Send a smaller file |
 | `415` | extract, one-call PDF | Not a PDF, DOCX, DOC or TXT file | Convert the file |
 | `422` | extract, one-call PDF | Bad IDs, a non-integer `template_id` or missing field; or the CV is unusable: over 4 pages, password-protected, damaged, empty, over 50,000 characters, Word 6/95 `.doc`, or no name or email found | Fix the request or the file; don't retry unchanged |
+| `422` | one-call PDF | `Send exactly one of file or file_url.` | Send either the file or the link |
+| `422` | one-call PDF | `file_url` couldn't be downloaded: not a public https link on port 443 (or has a user name), the host can't be found or isn't public, it redirected (`... Send the final URL of the CV.`), it answered something other than 200 (`<host> answered 404.`), it timed out or took over 30 s | Fix the link (send the final, public URL); retry only if the remote server was down |
 | `429` | all | Rate limit hit (see Limits) | Wait the number of seconds in the `Retry-After` header |
 | `500` | PDF, one-call PDF link | The PDF couldn't be rendered | Retry later; report if it persists |
 | `502` | extract, one-call PDF | The AI step failed (`AI extraction failed, please try again.`), or storing the files failed (`Could not store the resume files. Try again.`) | Retry after a short wait |
@@ -215,8 +238,8 @@ Every error body is JSON with a `detail` field. For our own errors `detail` is a
 
 | Limit | Value |
 | --- | --- |
-| Requests to the API | 120 per minute per IP address |
-| Extract and one-call PDF calls | 30 per hour per IP address together (on top of the above) |
+| Requests to the API | 120 per minute for your API key |
+| Extract and one-call PDF calls | 30 per hour for your API key, together (on top of the above) |
 | Request size | 10 MB |
 | Resume length | 4 pages; 50,000 characters of text |
 | ID length | 1–100 characters each |

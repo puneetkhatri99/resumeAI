@@ -27,7 +27,7 @@ const MIN_STAGE_MS = 700
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
 /**
- * The add-candidate page (#/candidates/new): one CV drop zone and "Add candidate". While sending, the drop zone
+ * The add-candidate page (#/candidates/new): one CV drop zone and "Start". While sending, the drop zone
  * and the button are disabled (a double submit would pay the AI twice) and a progress card covers the page:
  * Extracting text, AI cleaning, Creating resume, Uploading, each shown for at least MIN_STAGE_MS (the stage
  * queue is copied from InterviewForm). Errors (a CV over 10 MB, the spending cap, the rate limit, the network
@@ -105,14 +105,14 @@ export function AddCandidateForm() {
                 <p className="candidate-actions-text">
                   {isSubmitting ? 'Keep this tab open until the resume is ready.' : 'This can take up to a minute.'}
                 </p>
-                <button type="submit" className="button button-accent" disabled={isSubmitting}>
+                <button type="submit" className="button button-primary" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>
                       <span className="button-spinner" aria-hidden="true" />
                       Adding…
                     </>
                   ) : (
-                    'Add candidate'
+                    'Start'
                   )}
                 </button>
               </div>

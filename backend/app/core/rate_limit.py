@@ -12,7 +12,8 @@ A third bucket guards password guessing (auth): 10 POSTs per 15 minutes to /api/
 The client IP is request.client.host. Behind a proxy (Render) that is the proxy's address
 unless uvicorn is set up to trust its forwarded header. Until that is set up, every visitor on
 Render shares one count per bucket: an attacker who keeps guessing passwords also blocks real
-users' logins (accepted limit; users already logged in keep working).
+users' logins (accepted limit; users already logged in keep working). A request with a valid
+public API key (X-API-Key) is counted by the key instead of by IP, with the same limits.
 """
 
 import math
@@ -24,7 +25,11 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.core.config import is_public_api_key
+
 API_PREFIX = "/api"
+# The count key for requests with a valid X-API-Key (never the key itself, so it isn't kept).
+PUBLIC_API_KEY_CLIENT = "public-api-key"
 # POSTs to these paths run AI extraction, so they also count in the "upload" bucket.
 UPLOAD_PATHS = {
     "/api/resume_intake",
@@ -128,6 +133,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path == API_PREFIX or path.startswith(API_PREFIX + "/"):
             client_ip = request.client.host if request.client else "unknown"
+            # A valid public API key is counted on its own, so the key holder neither shares
+            # the proxy's IP count with web users on Render nor can dodge a limit by IP.
+            if is_public_api_key(request.headers.get("x-api-key")):
+                client_ip = PUBLIC_API_KEY_CLIENT
             retry_after = rate_limiter.check(client_ip, request.method, path)
             if retry_after is not None:
                 return JSONResponse(

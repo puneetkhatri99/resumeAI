@@ -14,7 +14,7 @@ import httpx2
 import openai
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -60,22 +60,27 @@ class FailingCommitSession:
     """Stand-in session whose commit fails the way it does when Postgres is down.
 
     Its one read, the spending-cap check's sum, answers $0, so the upload gets to the commit.
+    Only a commit that saves something fails: the cap check's empty commit passes.
     """
+
+    def __init__(self) -> None:
+        self.added = False
 
     def scalar(self, statement: object) -> Decimal:
         return Decimal(0)
 
     def add(self, instance: object) -> None:
-        pass
+        self.added = True
 
     def add_all(self, instances: object) -> None:
-        pass
+        self.added = True
 
     def rollback(self) -> None:
         pass
 
     def commit(self) -> None:
-        raise OperationalError("INSERT", {}, ConnectionRefusedError("connection refused"))
+        if self.added:
+            raise OperationalError("INSERT", {}, ConnectionRefusedError("connection refused"))
 
 
 class FailingQuerySession:
@@ -576,6 +581,8 @@ def test_boundary_paging_values_are_accepted(
 def test_has_more_is_false_when_exactly_a_page_is_left(
     client: TestClient, db_session: Session
 ) -> None:
+    # Rows already in the dev database would be a further page; the test's rollback restores them.
+    db_session.execute(delete(Candidate))
     rows = add_candidates(db_session, 3)
     body = client.get(f"{URL}?before_id={rows[-1].id + 1}&limit=3").json()
 
@@ -611,7 +618,9 @@ def test_a_name_with_a_nul_character_is_stored_without_it(
     # Prompt-injected AI output can hold \u0000, which Postgres text rejects; extraction strips it.
     fake_openai.result = FAKE_RESUME_DATA.model_copy(update={"name": "Jane\x00Doe"})
 
+    last_candidate = max_id(db_session, Candidate.id)
+
     events = post_cv(client)
 
     assert events[-1]["stage"] == "done"
-    assert db_session.scalars(select(Candidate.name)).all() == ["JaneDoe"]
+    assert [row.name for row in candidates_after(db_session, last_candidate)] == ["JaneDoe"]

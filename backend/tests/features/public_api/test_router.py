@@ -6,6 +6,7 @@ Every request that can store something goes through db_session and is rolled bac
 import json
 from decimal import Decimal
 
+import httpx
 import httpx2
 import openai
 import pytest
@@ -22,11 +23,13 @@ from app.features.candidates.service import STORE_FAILED_MESSAGE, public_url
 from app.features.public_api import router
 from app.features.public_api.models import PublicResume
 from app.features.public_api.router import INVALID_KEY_MESSAGE
+from app.features.public_api.service import MAX_CV_DOWNLOAD_BYTES, TOO_LARGE_MESSAGE
 from app.features.resume_generation.service import PdfRenderError
 from app.features.resume_intake.service import UNSUPPORTED_TYPE_MESSAGE
 from app.features.resume_structuring.schemas import InferredSkill
 from app.features.resume_structuring.service import AI_FAILED_MESSAGE, MISSING_CONTACT_MESSAGE
 from tests.conftest import FAKE_CALL_COST, FAKE_RESUME_DATA, FakeOpenAI, FakeS3
+from tests.features.public_api.conftest import CV_BYTES, CV_HOST, CV_URL, FakeWeb
 
 URL = "/api/public/resumes"
 API_KEY = "test-public-key"
@@ -518,3 +521,139 @@ def test_the_extraction_json_carries_the_summary_and_the_proven_inferred_skills(
     assert [skill["name"] for skill in data["inferred_skills"]] == [
         skill.name for skill in FAKE_RESUME_DATA.inferred_skills
     ]
+
+
+# --- POST /api/public/pdf with file_url (fake DNS and web through fake_web; no network) ---
+
+
+def test_a_cv_at_file_url_is_downloaded_and_saved_with_source_url(
+    client: TestClient, db_session: Session, fake_s3: FakeS3, fake_web: FakeWeb
+) -> None:
+    last_candidate = max_candidate_id(db_session)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL})
+
+    assert response.status_code == 200
+    [candidate] = candidates_after(db_session, last_candidate)
+    assert response.json()["url"] == public_url(candidate.resume_key)
+    assert (candidate.name, candidate.source, candidate.file_type) == ("Jane Doe", "url", "txt")
+    assert fake_s3.objects[(settings.resume_bucket, candidate.original_key)]["Body"] == CV_BYTES
+    assert len(fake_web.requests) == 1
+
+
+def test_an_empty_file_url_next_to_a_file_counts_as_missing(
+    client: TestClient, db_session: Session, fake_web: FakeWeb
+) -> None:
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"file_url": ""}, files={"file": TXT_CV}
+    )
+
+    assert response.status_code == 200
+    assert fake_web.requests == []
+
+
+@pytest.mark.parametrize(
+    ("data", "files"),
+    [
+        ({"file_url": CV_URL}, {"file": TXT_CV}),  # both
+        ({}, None),  # neither
+        ({"file_url": ""}, None),  # an empty file_url is missing
+        ({"template_id": "1"}, None),  # a form without either
+    ],
+)
+def test_both_or_neither_file_and_file_url_is_422_without_an_ai_call(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    fake_web: FakeWeb,
+    data: dict[str, str],
+    files: dict[str, tuple[str, bytes, str]] | None,
+) -> None:
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data=data, files=files)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Send exactly one of file or file_url."}
+    assert fake_openai.calls == []
+    assert fake_web.requests == []
+
+
+def test_a_file_url_over_8192_characters_is_422(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_web: FakeWeb
+) -> None:
+    long_url = f"https://{CV_HOST}/" + "a" * 8192
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": long_url})
+
+    assert response.status_code == 422
+    assert fake_openai.calls == []
+    assert fake_web.lookups == []
+
+
+def test_a_file_url_that_fails_to_download_is_422_without_an_ai_call_or_storage(
+    client: TestClient,
+    db_session: Session,
+    fake_openai: FakeOpenAI,
+    fake_s3: FakeS3,
+    fake_web: FakeWeb,
+) -> None:
+    fake_web.handler = lambda request: httpx.Response(404)
+    last_candidate = max_candidate_id(db_session)
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": f"{CV_HOST} answered 404."}
+    assert fake_openai.calls == []
+    assert fake_s3.objects == {}
+    assert candidates_after(db_session, last_candidate) == []
+
+
+def test_a_file_url_on_an_internal_address_is_422(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_web: FakeWeb
+) -> None:
+    fake_web.addresses[CV_HOST] = ["169.254.169.254"]
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL})
+
+    assert response.status_code == 422
+    assert fake_openai.calls == []
+    assert fake_web.requests == []
+
+
+def test_a_cv_at_file_url_over_10_mb_is_413(
+    client: TestClient, db_session: Session, fake_openai: FakeOpenAI, fake_web: FakeWeb
+) -> None:
+    fake_web.handler = lambda request: httpx.Response(
+        200, headers={"Content-Length": str(MAX_CV_DOWNLOAD_BYTES + 1)}, content=iter([b"a"])
+    )
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL})
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": TOO_LARGE_MESSAGE}
+    assert fake_openai.calls == []
+
+
+def test_an_unknown_template_is_404_before_the_download(
+    client: TestClient, db_session: Session, fake_web: FakeWeb
+) -> None:
+    response = client.post(
+        NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL, "template_id": "2"}
+    )
+
+    assert response.status_code == 404
+    assert fake_web.lookups == []
+
+
+def test_the_spending_cap_is_402_before_the_download(
+    client: TestClient,
+    db_session: Session,
+    fake_web: FakeWeb,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ai_spend_cap_usd", Decimal(0))
+
+    response = client.post(NEW_PDF_URL, headers=HEADERS, data={"file_url": CV_URL})
+
+    assert response.status_code == 402
+    assert fake_web.lookups == []

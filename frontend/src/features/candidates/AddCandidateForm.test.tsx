@@ -36,7 +36,7 @@ function controlledEventStream() {
  * the form sends an empty file field, which is enough to drive the stream.
  */
 function submit() {
-  fireEvent.submit(screen.getByRole('button', { name: 'Add candidate' }).closest('form')!)
+  fireEvent.submit(screen.getByRole('button', { name: 'Start' }).closest('form')!)
 }
 
 const ERROR_CASES = [
@@ -126,7 +126,7 @@ describe('AddCandidateForm', () => {
     submit()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(expectedText)
-    expect(screen.getByRole('button', { name: 'Add candidate' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Open new resume' })).not.toBeInTheDocument()
   })

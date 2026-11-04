@@ -17,8 +17,8 @@ export type CandidateSummary = {
   id: number
   name: string
   created_at: string
-  /** "manual": added in this app; "api": sent to the public PDF API. */
-  source: 'manual' | 'api'
+  /** "manual": added in this app; "api": a file sent to the public PDF API; "url": a file_url sent to it. */
+  source: 'manual' | 'api' | 'url'
   /** What the upload's AI calls cost in USD; null when none of them had a price. */
   ai_cost_usd: number | null
   /** A presigned link to the original CV that expires after 1 hour (reload the page for a fresh one). */

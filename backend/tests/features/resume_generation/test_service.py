@@ -620,6 +620,32 @@ def test_at_most_two_renders_run_at_once(monkeypatch: pytest.MonkeyPatch) -> Non
     assert peak == MAX_CONCURRENT_RENDERS == 2
 
 
+def test_a_render_that_waits_too_long_for_a_slot_fails_and_frees_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With every slot held (as by hung renders), a new render gives up after
+    RENDER_WAIT_SECONDS with PdfRenderError, and Chromium never starts."""
+    monkeypatch.setattr(service, "RENDER_WAIT_SECONDS", 0.05)
+    started = []
+    monkeypatch.setattr(service, "sync_playwright", lambda: started.append(1))
+    for _ in range(MAX_CONCURRENT_RENDERS):
+        service.render_slots.acquire()
+    try:
+        with pytest.raises(PdfRenderError):
+            render_pdf("<p>Jane Doe</p>")
+    finally:
+        for _ in range(MAX_CONCURRENT_RENDERS):
+            service.render_slots.release()
+
+    assert started == []
+    # The failed wait released nothing extra: exactly the configured slots are free again.
+    for _ in range(MAX_CONCURRENT_RENDERS):
+        assert service.render_slots.acquire(timeout=0)
+    assert not service.render_slots.acquire(timeout=0)
+    for _ in range(MAX_CONCURRENT_RENDERS):
+        service.render_slots.release()
+
+
 def test_real_render_has_a_header_and_footer_on_every_page() -> None:
     """The one real render (user-approved): needs Chromium from `playwright install`.
 
